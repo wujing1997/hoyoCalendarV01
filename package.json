@@ -1,0 +1,22 @@
+{
+  "name": "hoyocalendar",
+  "version": "1.0.0",
+  "description": "二次元风格玻璃拟态桌面悬浮日历应用",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["electron", "calendar", "glassmorphism", "hoyo"],
+  "author": "HoyoCalendar Team",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^40.1.0"
+  },
+  "dependencies": {
+    "lunar-javascript": "^1.6.12",
+    "axios": "^1.6.0",
+    "electron-store": "^8.1.0"
+  }
+}

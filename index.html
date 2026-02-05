@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://ark.cn-beijing.volces.com https://api.openai.com http://localhost:*;">
+  <title>HoyoCalendar</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 主容器 - 玻璃拟态卡片 -->
+  <div class="glass-container" id="app">
+    
+    <!-- 标题栏 - 可拖拽区域 -->
+    <header class="titlebar" id="titlebar">
+      <div class="titlebar-left">
+        <span class="app-icon">📅</span>
+        <span class="app-title">HoyoCalendar</span>
+      </div>
+      <div class="titlebar-controls">
+        <button class="control-btn settings-btn-icon" id="settingsBtn" title="设置">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/>
+          </svg>
+        </button>
+        <button class="control-btn pin-btn" id="pinBtn" title="切换置顶">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z"/>
+          </svg>
+        </button>
+        <button class="control-btn minimize-btn" id="minimizeBtn" title="最小化">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M19,13H5V11H19V13Z"/>
+          </svg>
+        </button>
+        <button class="control-btn close-btn" id="closeBtn" title="关闭">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 日期头部 - 点击可切换视图 -->
+    <section class="date-header">
+      <div class="date-info">
+        <span class="year clickable" id="yearLabel">2026</span>
+        <span class="separator">年</span>
+        <span class="month clickable" id="monthLabel">1</span>
+        <span class="separator">月</span>
+      </div>
+      <div class="lunar-info" id="lunarInfo">农历 腊月 十一</div>
+      <div class="holiday-badge" id="holidayBadge"></div>
+    </section>
+
+    <!-- 今日视图 - 默认显示 -->
+    <section class="view-container" id="todayView">
+      <!-- 周日期选择器 -->
+      <div class="week-picker" id="weekPicker">
+        <!-- 动态生成日期项 -->
+      </div>
+
+      <!-- 日程列表 -->
+      <div class="agenda-list" id="agendaList">
+        <div class="empty-state" id="emptyState">
+          <span class="empty-icon">🎮</span>
+          <p>今日暂无日程</p>
+          <p class="empty-hint">输入文字或拖入图片添加任务</p>
+        </div>
+        <!-- 任务项将在这里动态渲染 -->
+      </div>
+
+      <!-- 输入区域 -->
+      <div class="input-area">
+        <div class="input-wrapper">
+          <input type="text" 
+                 class="task-input" 
+                 id="taskInput" 
+                 placeholder="输入日程或拖入图片..."
+                 autocomplete="off">
+          <label class="upload-btn" id="uploadBtn" title="上传图片">
+            <input type="file" id="imageInput" accept="image/*" hidden>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/>
+            </svg>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 月视图 - 隐藏 -->
+    <section class="view-container hidden" id="monthView">
+      <div class="month-grid-header">
+        <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+      </div>
+      <div class="month-grid" id="monthGrid">
+        <!-- 动态生成月份网格 -->
+      </div>
+      <button class="back-btn" id="backFromMonth">← 返回今日</button>
+    </section>
+
+    <!-- 年视图 - 隐藏 -->
+    <section class="view-container hidden" id="yearView">
+      <div class="year-grid" id="yearGrid">
+        <!-- 动态生成 12 个月缩略图 -->
+      </div>
+      <button class="back-btn" id="backFromYear">← 返回今日</button>
+    </section>
+
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
