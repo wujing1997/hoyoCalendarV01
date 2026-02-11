@@ -804,7 +804,7 @@ function createTaskElement(event) {
     ? `<div class="task-location"><span class="location-icon">📍</span>${escapeHtml(event.location)}</div>` 
     : '';
   
-  // 长期任务进度条
+  // 长期任务进度条（无论是否完成都显示）
   let progressHtml = '';
   if ((event.isRecurringInstance || event.isRecurring) && event.progress) {
     const progress = event.progress;
@@ -821,18 +821,8 @@ function createTaskElement(event) {
     `;
   }
   
-  // 长期任务勾选框
+  // 长期任务不再使用单独的勾选框，改为通过点击整个任务条完成
   let checkboxHtml = '';
-  if (event.isRecurringInstance) {
-    const checkedClass = event.isCompleted ? 'checked' : '';
-    checkboxHtml = `
-      <div class="task-checkbox ${checkedClass}" data-parent-id="${event.recurringParentId}" data-date="${event.date}">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-          <path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/>
-        </svg>
-      </div>
-    `;
-  }
   
   taskEl.innerHTML = `
     ${checkboxHtml}
@@ -846,32 +836,32 @@ function createTaskElement(event) {
     </div>
   `;
   
-  // 长期任务勾选框点击
-  const checkbox = taskEl.querySelector('.task-checkbox');
-  if (checkbox) {
-    checkbox.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const parentId = parseInt(checkbox.dataset.parentId);
-      const date = checkbox.dataset.date;
-      
-      if (window.eventAPI && window.eventAPI.toggleRecurringDateComplete) {
-        window.eventAPI.toggleRecurringDateComplete(parentId, date);
-        // 刷新列表
-        refreshTaskCounts();
-        renderAgendaList();
-        renderWeekPicker(state.currentDate);
+  // 长期任务：点击整个任务条即完成当日任务
+  if (event.isRecurringInstance) {
+    taskEl.addEventListener('click', function(e) {
+      if (!e.target.closest('.context-menu')) {
+        e.stopPropagation();
+        const parentId = event.recurringParentId;
+        const date = event.date;
+        
+        if (window.eventAPI && window.eventAPI.toggleRecurringDateComplete) {
+          window.eventAPI.toggleRecurringDateComplete(parentId, date);
+          refreshTaskCounts();
+          renderAgendaList();
+          renderWeekPicker(state.currentDate);
+        }
+      }
+    });
+  } else {
+    // 非长期任务：单击折叠/展开
+    taskEl.addEventListener('click', function(e) {
+      if (!e.target.closest('.context-menu')) {
+        const key = this.dataset.collapseKey;
+        toggleTaskCollapsed(key);
+        this.classList.toggle('collapsed');
       }
     });
   }
-  
-  // 单击折叠/展开（持久化保存状态）
-  taskEl.addEventListener('click', function(e) {
-    if (!e.target.closest('.context-menu') && !e.target.closest('.task-checkbox')) {
-      const key = this.dataset.collapseKey;
-      toggleTaskCollapsed(key);
-      this.classList.toggle('collapsed');
-    }
-  });
   
   // 右键菜单
   taskEl.addEventListener('contextmenu', (e) => {

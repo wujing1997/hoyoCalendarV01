@@ -376,16 +376,15 @@ body {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 16px;
-  padding: 16px;
-  padding-left: 16px;
-  margin-bottom: 12px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
   cursor: pointer;
   transition: all var(--transition-normal);
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 8px;
 }
 
 /* 紧急程度立条 */
@@ -393,8 +392,8 @@ body {
   content: '';
   position: absolute;
   left: 0;
-  top: 12px;
-  bottom: 12px;
+  top: 8px;
+  bottom: 8px;
   width: 3px;
   background: var(--primary-blue);
   border-radius: 2px;
@@ -413,15 +412,15 @@ body {
 
 /* ========== 折叠状态 ========== */
 .task-item.collapsed {
-  padding: 8px 16px;
+  padding: 6px 12px;
   align-items: center;
   opacity: 0.7;
   background: rgba(255, 255, 255, 0.05);
 }
 
 .task-item.collapsed::before {
-  top: 8px;
-  bottom: 8px;
+  top: 6px;
+  bottom: 6px;
   background: var(--text-muted);
 }
 
@@ -432,7 +431,7 @@ body {
 .task-item.collapsed .task-title {
   text-decoration: line-through;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
   margin-top: 0;
 }
 
@@ -444,12 +443,6 @@ body {
   display: none;
 }
 
-.task-item.collapsed .task-checkbox {
-  width: 20px;
-  height: 20px;
-  min-width: 20px;
-}
-
 .task-item.collapsed .task-content {
   flex-direction: row;
   align-items: center;
@@ -458,24 +451,24 @@ body {
 
 /* 时间 - 左上角，亮蓝色 */
 .task-time {
-  font-size: 14px;
+  font-size: 12px;
   color: #007AFF;
   font-weight: 600;
 }
 
 /* 标题 - 中间，纯白色 */
 .task-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 500;
   color: #FFFFFF;
-  margin-top: 4px;
+  margin-top: 2px;
   transition: all var(--transition-normal);
 }
 
 /* 详情区域 */
 .task-details {
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 2px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
@@ -649,8 +642,30 @@ body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  padding: 8px 0;
+  padding: 8px 16px;
   flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 自定义滚动条样式 */
+.year-grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.year-grid::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.year-grid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  transition: background var(--transition-fast);
+}
+
+.year-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .year-month {
@@ -1147,13 +1162,50 @@ body {
   background: var(--starrail-blue);
 }
 
+/* 长期任务完成状态 - 紧凑但保留进度条 */
 .task-item.recurring.completed {
-  opacity: 0.7;
+  opacity: 0.65;
+  padding: 6px 12px;
+  border-left-color: var(--code-green);
+}
+
+.task-item.recurring.completed::before {
+  background: var(--code-green);
 }
 
 .task-item.recurring.completed .task-title {
   text-decoration: line-through;
   color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.task-item.recurring.completed .task-time {
+  display: none;
+}
+
+.task-item.recurring.completed .task-details {
+  display: none;
+}
+
+.task-item.recurring.completed .task-progress {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: none;
+}
+
+.task-item.recurring.completed .progress-bar {
+  height: 4px;
+  margin-bottom: 2px;
+}
+
+.task-item.recurring.completed .progress-text {
+  font-size: 10px;
+}
+
+/* 长期任务点击反馈 */
+.task-item.recurring:active {
+  transform: scale(0.97);
+  transition: transform 0.1s ease;
 }
 
 /* 任务内容包装 */
@@ -1161,13 +1213,13 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .task-item {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 8px;
 }
 
 /* 勾选框 */
@@ -1209,30 +1261,30 @@ body {
 
 /* 进度条 */
 .task-progress {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .progress-bar {
-  height: 6px;
+  height: 4px;
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+  border-radius: 2px;
   overflow: hidden;
-  margin-bottom: 6px;
+  margin-bottom: 3px;
 }
 
 .progress-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--starrail-blue), var(--code-green));
-  border-radius: 3px;
+  border-radius: 2px;
   transition: width 0.3s ease;
 }
 
 .progress-text {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
 }
 
