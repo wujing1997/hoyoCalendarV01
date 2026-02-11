@@ -813,6 +813,16 @@ body {
   color: rgba(255, 255, 255, 0.4);
 }
 
+.edit-modal-readonly {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.8);
+}
+
 .edit-modal-row {
   display: flex;
   gap: 12px;

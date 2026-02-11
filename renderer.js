@@ -907,20 +907,34 @@ function showContextMenu(x, y, event) {
   
   contextMenuEl = document.createElement('div');
   contextMenuEl.className = 'context-menu';
-  contextMenuEl.innerHTML = `
-    <div class="context-menu-item" data-action="edit-time">
-      ⏰ 编辑时间
-    </div>
-    <div class="context-menu-item" data-action="edit-content">
-      ✏️ 编辑内容
-    </div>
-    <div class="context-menu-item" data-action="toggle-urgency">
-      🔥 切换紧急
-    </div>
-    <div class="context-menu-item danger" data-action="delete">
-      🗑️ 删除
-    </div>
-  `;
+  
+  // 判断是否为长期任务
+  const isLongTerm = event.isRecurring || event.isRecurringInstance;
+  
+  if (isLongTerm) {
+    // 长期任务：修改起止日期
+    contextMenuEl.innerHTML = `
+      <div class="context-menu-item" data-action="edit-dates">
+        📅 修改起止日期
+      </div>
+      <div class="context-menu-item danger" data-action="delete">
+        🗑️ 删除
+      </div>
+    `;
+  } else {
+    // 短期任务：编辑和删除
+    contextMenuEl.innerHTML = `
+      <div class="context-menu-item" data-action="edit">
+        ✏️ 编辑
+      </div>
+      <div class="context-menu-item" data-action="convert-to-longterm">
+        🔄 转为长期任务
+      </div>
+      <div class="context-menu-item danger" data-action="delete">
+        🗑️ 删除
+      </div>
+    `;
+  }
   
   // 处理菜单项点击
   contextMenuEl.querySelectorAll('.context-menu-item').forEach(item => {
@@ -953,17 +967,19 @@ function hideContextMenu() {
 
 function handleContextMenuAction(action, event) {
   switch (action) {
-    case 'edit-time':
-      showEditModal(event, 'time');
-      break;
-      
-    case 'edit-content':
+    case 'edit':
+      // 短期任务编辑：事件/时间/地点/紧急程度
       showEditModal(event, 'all');
       break;
       
-    case 'toggle-urgency':
-      const newUrgency = event.urgency === 'high' ? 'normal' : 'high';
-      updateEvent(event.id, { urgency: newUrgency });
+    case 'convert-to-longterm':
+      // 转为长期任务
+      showConvertToLongTermModal(event);
+      break;
+      
+    case 'edit-dates':
+      // 长期任务修改起止日期
+      showEditDatesModal(event);
       break;
       
     case 'delete':
@@ -1110,6 +1126,228 @@ function hideEditModal() {
     editModalEl.remove();
     editModalEl = null;
   }
+}
+
+// ==================== 转换为长期任务弹窗 ====================
+function showConvertToLongTermModal(event) {
+  hideEditModal();
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'edit-modal-overlay';
+  
+  const today = LunarHelper.formatDate(new Date());
+  const nextWeek = LunarHelper.formatDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
+  
+  overlay.innerHTML = `
+    <div class="edit-modal">
+      <div class="edit-modal-title">🔄 转为长期任务</div>
+      
+      <div class="edit-modal-field">
+        <label class="edit-modal-label">事件内容</label>
+        <div class="edit-modal-readonly">${escapeHtml(event.event)}</div>
+      </div>
+      
+      <div class="edit-modal-row">
+        <div class="edit-modal-field">
+          <label class="edit-modal-label">开始日期</label>
+          <input type="date" class="edit-modal-input" id="convert-start-date" 
+                 value="${event.date || today}">
+        </div>
+        <div class="edit-modal-field">
+          <label class="edit-modal-label">结束日期</label>
+          <input type="date" class="edit-modal-input" id="convert-end-date" 
+                 value="${nextWeek}">
+        </div>
+      </div>
+      
+      <div class="edit-modal-field">
+        <label class="edit-modal-label">重复类型</label>
+        <div class="edit-modal-urgency">
+          <div class="urgency-option selected" data-type="daily">
+            📅 每天
+          </div>
+          <div class="urgency-option" data-type="weekly">
+            📆 每周
+          </div>
+        </div>
+      </div>
+      
+      <div class="edit-modal-buttons">
+        <button class="edit-modal-btn cancel">取消</button>
+        <button class="edit-modal-btn save">转换</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  editModalEl = overlay;
+  
+  // 重复类型选择
+  let recurringType = 'daily';
+  overlay.querySelectorAll('.urgency-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      overlay.querySelectorAll('.urgency-option').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      recurringType = opt.dataset.type;
+    });
+  });
+  
+  // 取消按钮
+  overlay.querySelector('.edit-modal-btn.cancel').addEventListener('click', hideEditModal);
+  
+  // 保存按钮
+  overlay.querySelector('.edit-modal-btn.save').addEventListener('click', () => {
+    const startDate = overlay.querySelector('#convert-start-date').value;
+    const endDate = overlay.querySelector('#convert-end-date').value;
+    
+    if (!startDate || !endDate) {
+      alert('请选择开始和结束日期');
+      return;
+    }
+    
+    if (startDate > endDate) {
+      alert('开始日期不能晚于结束日期');
+      return;
+    }
+    
+    // 删除原短期任务
+    deleteEvent(event.id);
+    
+    // 创建长期任务
+    const newEvent = {
+      event: event.event,
+      time: event.time || '',
+      location: event.location || '',
+      urgency: event.urgency || 'normal',
+      isRecurring: true,
+      recurringType: recurringType,
+      recurringDays: null,
+      startDate: startDate,
+      endDate: endDate,
+      completedDates: [],
+    };
+    
+    if (window.eventAPI) {
+      window.eventAPI.addEvent(newEvent);
+      state.events = window.eventAPI.loadEvents();
+    } else {
+      newEvent.id = Date.now() + Math.random();
+      state.events.push(newEvent);
+    }
+    
+    refreshTaskCounts();
+    renderAgendaList();
+    renderWeekPicker(state.currentDate);
+    
+    hideEditModal();
+  });
+  
+  // 点击遮罩关闭
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      hideEditModal();
+    }
+  });
+  
+  // ESC 关闭
+  const handleEsc = (e) => {
+    if (e.key === 'Escape') {
+      hideEditModal();
+      document.removeEventListener('keydown', handleEsc);
+    }
+  };
+  document.addEventListener('keydown', handleEsc);
+}
+
+// ==================== 修改长期任务起止日期弹窗 ====================
+function showEditDatesModal(event) {
+  hideEditModal();
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'edit-modal-overlay';
+  
+  // 获取实际的长期任务（如果是实例，找到父任务）
+  let actualEvent = event;
+  if (event.isRecurringInstance && event.recurringParentId) {
+    const parentEvent = state.events.find(e => e.id === event.recurringParentId);
+    if (parentEvent) {
+      actualEvent = parentEvent;
+    }
+  }
+  
+  overlay.innerHTML = `
+    <div class="edit-modal">
+      <div class="edit-modal-title">📅 修改起止日期</div>
+      
+      <div class="edit-modal-field">
+        <label class="edit-modal-label">事件内容</label>
+        <div class="edit-modal-readonly">${escapeHtml(actualEvent.event)}</div>
+      </div>
+      
+      <div class="edit-modal-row">
+        <div class="edit-modal-field">
+          <label class="edit-modal-label">开始日期</label>
+          <input type="date" class="edit-modal-input" id="edit-start-date" 
+                 value="${actualEvent.startDate || ''}">
+        </div>
+        <div class="edit-modal-field">
+          <label class="edit-modal-label">结束日期</label>
+          <input type="date" class="edit-modal-input" id="edit-end-date" 
+                 value="${actualEvent.endDate || ''}">
+        </div>
+      </div>
+      
+      <div class="edit-modal-buttons">
+        <button class="edit-modal-btn cancel">取消</button>
+        <button class="edit-modal-btn save">保存</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  editModalEl = overlay;
+  
+  // 取消按钮
+  overlay.querySelector('.edit-modal-btn.cancel').addEventListener('click', hideEditModal);
+  
+  // 保存按钮
+  overlay.querySelector('.edit-modal-btn.save').addEventListener('click', () => {
+    const startDate = overlay.querySelector('#edit-start-date').value;
+    const endDate = overlay.querySelector('#edit-end-date').value;
+    
+    if (!startDate || !endDate) {
+      alert('请选择开始和结束日期');
+      return;
+    }
+    
+    if (startDate > endDate) {
+      alert('开始日期不能晚于结束日期');
+      return;
+    }
+    
+    updateEvent(actualEvent.id, {
+      startDate: startDate,
+      endDate: endDate
+    });
+    
+    hideEditModal();
+  });
+  
+  // 点击遮罩关闭
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      hideEditModal();
+    }
+  });
+  
+  // ESC 关闭
+  const handleEsc = (e) => {
+    if (e.key === 'Escape') {
+      hideEditModal();
+      document.removeEventListener('keydown', handleEsc);
+    }
+  };
+  document.addEventListener('keydown', handleEsc);
 }
 
 function updateEvent(id, updates) {
