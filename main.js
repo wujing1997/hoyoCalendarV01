@@ -39,8 +39,10 @@ function createWindow() {
   // 加载主页面
   mainWindow.loadFile('index.html');
 
-  // 开发模式下打开 DevTools（可选）
-  mainWindow.webContents.openDevTools({ mode: 'detach' });
+  // 开发模式下打开 DevTools
+  if (!app.isPackaged) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 
   // 窗口关闭时清除引用
   mainWindow.on('closed', () => {

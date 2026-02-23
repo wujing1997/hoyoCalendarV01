@@ -5,18 +5,53 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "build": "electron-builder --win",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["electron", "calendar", "glassmorphism", "hoyo"],
+  "keywords": [
+    "electron",
+    "calendar",
+    "glassmorphism",
+    "hoyo"
+  ],
   "author": "HoyoCalendar Team",
   "license": "ISC",
   "type": "commonjs",
+  "build": {
+    "appId": "com.hoyocalendar.app",
+    "productName": "HoyoCalendar",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "ai-service.js",
+      "index.html",
+      "styles.css",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "HoyoCalendar.exe"
+    }
+  },
   "devDependencies": {
-    "electron": "^40.1.0"
+    "electron": "^40.1.0",
+    "electron-builder": "^26.8.1"
   },
   "dependencies": {
-    "lunar-javascript": "^1.6.12",
     "axios": "^1.6.0",
-    "electron-store": "^8.1.0"
+    "electron-store": "^8.1.0",
+    "lunar-javascript": "^1.6.12"
   }
 }

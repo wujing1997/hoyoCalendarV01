@@ -36,6 +36,12 @@ if (!fs.existsSync(dataDir)) {
 }
 
 // 事件存储工具
+let _idCounter = 0;
+function generateUniqueId() {
+  _idCounter++;
+  return Date.now() * 1000 + _idCounter;
+}
+
 const EventStore = {
   // 读取所有事件
   loadEvents() {
@@ -65,7 +71,7 @@ const EventStore = {
   // 添加事件（支持长期任务）
   addEvent(event) {
     const events = this.loadEvents();
-    event.id = Date.now();
+    event.id = generateUniqueId();
     event.createdAt = new Date().toISOString();
     
     // 如果是长期任务，保存原始任务并展开为子任务
@@ -95,9 +101,12 @@ const EventStore = {
   deleteEvent(id) {
     const events = this.loadEvents();
     const filtered = events.filter(e => e.id !== id);
-    if (filtered.length !== events.length) {
+    const deletedCount = events.length - filtered.length;
+    if (deletedCount > 0) {
+      console.log(`🗑️ 删除了 ${deletedCount} 条日程 (id: ${id})`);
       return this.saveEvents(filtered);
     }
+    console.log(`⚠️ 未找到要删除的日程 (id: ${id})`);
     return false;
   },
   
