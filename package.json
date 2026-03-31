@@ -1,11 +1,13 @@
 {
   "name": "hoyocalendar",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "二次元风格玻璃拟态桌面悬浮日历应用",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win",
+    "build:backend": "d:/vscodeprojects/hoyoCalendar/.venv/Scripts/python.exe -m PyInstaller --noconfirm --onedir --console --name backend_server backend/app.py",
+    "build:electron": "electron-builder --win",
+    "build": "npm run build:backend && npm run build:electron",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -19,7 +21,7 @@
   "type": "commonjs",
   "build": {
     "appId": "com.hoyocalendar.app",
-    "productName": "HoyoCalendar",
+    "productName": "HoYoCalenderV01",
     "directories": {
       "output": "dist"
     },
@@ -33,6 +35,13 @@
       "package.json",
       "node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "dist/backend_server",
+        "to": "backend_server",
+        "filter": ["**/*"]
+      }
+    ],
     "win": {
       "target": [
         {
@@ -42,7 +51,7 @@
       ]
     },
     "portable": {
-      "artifactName": "HoyoCalendar.exe"
+      "artifactName": "HoYoCalenderV01.exe"
     }
   },
   "devDependencies": {
@@ -50,8 +59,6 @@
     "electron-builder": "^26.8.1"
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "electron-store": "^8.1.0",
     "lunar-javascript": "^1.6.12"
   }
 }

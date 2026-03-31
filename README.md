@@ -12,6 +12,12 @@
 
 **环境要求**：Node.js 18+、Python 3.8+
 
+**方式一：直接使用打包版（推荐）**
+
+从 Releases 下载 `HoYoCalenderV01.exe`，双击即可运行，无需安装任何环境。
+
+**方式二：从源码运行**
+
 ```bash
 # 1. 安装前端依赖
 npm install
@@ -469,5 +475,11 @@ OpenAI SDK + Function Calling（最多 6 轮）
 - ✅ 长期循环任务支持（每天/每周/每月）
 - ✅ 聊天面板 + 设置面板
 - ✅ preload 使用 Node.js http 模块替代 fetch
+
+### v0.1.0 (2026-03-31)
+
+- ✅ 使用 PyInstaller + electron-builder 打包为单文件 portable exe
+- ✅ 打包后无需安装 Python/Node.js 环境即可运行
+- ✅ main.js 自动检测打包模式，生产环境使用编译后的 backend_server.exe
 
 </details>

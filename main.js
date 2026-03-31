@@ -25,45 +25,65 @@ function findAvailablePort(startPort) {
 // 启动 Python Flask 后端
 async function startBackend() {
   backendPort = await findAvailablePort(5000);
-  const pythonScript = path.join(__dirname, 'backend', 'app.py');
 
-  // 尝试不同的 Python 命令
-  const pythonCommands = ['python', 'python3', 'py'];
-  for (const cmd of pythonCommands) {
-    try {
-      backendProcess = spawn(cmd, [pythonScript, String(backendPort)], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
-      });
-
-      return new Promise((resolve, reject) => {
-        let started = false;
-        backendProcess.stdout.on('data', (data) => {
-          const msg = data.toString();
-          console.log('[Backend]', msg.trim());
-          if (!started && msg.includes('starting on')) {
-            started = true;
-            // 等待服务就绪
-            setTimeout(resolve, 500);
-          }
+  // 判断是否为打包后的生产环境
+  if (app.isPackaged) {
+    // 打包模式：使用 PyInstaller 编译的 backend_server.exe
+    const exePath = path.join(process.resourcesPath, 'backend_server', 'backend_server.exe');
+    console.log('[Backend] 使用打包后端:', exePath);
+    backendProcess = spawn(exePath, [String(backendPort)], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env },
+    });
+  } else {
+    // 开发模式：使用 Python 解释器运行 app.py
+    const pythonScript = path.join(__dirname, 'backend', 'app.py');
+    const pythonCommands = ['python', 'python3', 'py'];
+    let launched = false;
+    for (const cmd of pythonCommands) {
+      try {
+        backendProcess = spawn(cmd, [pythonScript, String(backendPort)], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env },
         });
-        backendProcess.stderr.on('data', (data) => {
-          console.error('[Backend ERR]', data.toString().trim());
-        });
-        backendProcess.on('error', reject);
-        backendProcess.on('exit', (code) => {
-          if (!started) reject(new Error(`Backend exited with code ${code}`));
-        });
-        // 超时
-        setTimeout(() => {
-          if (!started) { started = true; resolve(); }
-        }, 5000);
-      });
-    } catch (e) {
-      continue;
+        launched = true;
+        break;
+      } catch (e) {
+        continue;
+      }
+    }
+    if (!launched) {
+      console.error('无法启动 Python 后端');
+      return;
     }
   }
-  console.error('无法启动 Python 后端');
+
+  return new Promise((resolve) => {
+    let started = false;
+    backendProcess.stdout.on('data', (data) => {
+      const msg = data.toString();
+      console.log('[Backend]', msg.trim());
+      if (!started && msg.includes('starting on')) {
+        started = true;
+        setTimeout(resolve, 500);
+      }
+    });
+    backendProcess.stderr.on('data', (data) => {
+      console.error('[Backend ERR]', data.toString().trim());
+    });
+    backendProcess.on('error', (err) => {
+      console.error('[Backend] 启动失败:', err.message);
+      if (!started) { started = true; resolve(); }
+    });
+    backendProcess.on('exit', (code) => {
+      console.log('[Backend] 进程退出, code:', code);
+      if (!started) { started = true; resolve(); }
+    });
+    // 超时
+    setTimeout(() => {
+      if (!started) { started = true; resolve(); }
+    }, 8000);
+  });
 }
 
 // 关闭后端
