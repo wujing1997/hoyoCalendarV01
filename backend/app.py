@@ -191,18 +191,36 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "create_event",
-            "description": "创建一条新日程",
+            "description": "创建一条新日程。支持一次性日程和长期循环任务（如每天背单词、每周健身等）。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "event": {"type": "string", "description": "日程名称"},
-                    "date": {"type": "string", "description": "日期，格式 YYYY-MM-DD"},
+                    "date": {"type": "string", "description": "日期，格式 YYYY-MM-DD。对于循环任务，这是开始日期。"},
                     "time": {"type": "string", "description": "时间，格式 HH:mm（24小时制），没有则不填"},
                     "location": {"type": "string", "description": "地点，没有则不填"},
                     "urgency": {
                         "type": "string",
                         "enum": ["normal", "high"],
                         "description": "紧急程度，默认 normal"
+                    },
+                    "isRecurring": {
+                        "type": "boolean",
+                        "description": "是否为长期循环任务，默认 false"
+                    },
+                    "recurringType": {
+                        "type": "string",
+                        "enum": ["daily", "weekly", "monthly"],
+                        "description": "循环类型：daily=每天, weekly=每周指定几天, monthly=每月。仅 isRecurring=true 时有效。"
+                    },
+                    "recurringDays": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "每周的哪几天重复，0=周日,1=周一,...,6=周六。仅 recurringType=weekly 时需要。"
+                    },
+                    "endDate": {
+                        "type": "string",
+                        "description": "循环任务结束日期，格式 YYYY-MM-DD。仅 isRecurring=true 时需要。不填则默认持续到一年后。"
                     }
                 },
                 "required": ["event", "date"]
@@ -250,13 +268,25 @@ def execute_function(name: str, args: dict) -> dict:
     if name == 'list_events':
         events = load_events()
         result = []
+        date_filter = args.get('date')
+        keyword = args.get('keyword')
         for e in events:
             if e.get('isRecurring'):
-                continue  # 循环日程暂不在此处展开
-            date_filter = args.get('date')
+                if date_filter:
+                    if is_date_in_recurring_range(date_filter, e):
+                        instance = dict(e)
+                        instance['date'] = date_filter
+                        instance['isCompleted'] = date_filter in (e.get('completedDates') or [])
+                        if keyword and keyword.lower() not in instance.get('event', '').lower():
+                            continue
+                        result.append(instance)
+                else:
+                    if keyword and keyword.lower() not in e.get('event', '').lower():
+                        continue
+                    result.append(e)
+                continue
             if date_filter and e.get('date') != date_filter:
                 continue
-            keyword = args.get('keyword')
             if keyword and keyword.lower() not in e.get('event', '').lower():
                 continue
             result.append(e)
@@ -273,12 +303,26 @@ def execute_function(name: str, args: dict) -> dict:
             'urgency': args.get('urgency', 'normal'),
             'createdAt': datetime.now().isoformat(),
         }
+        if args.get('isRecurring'):
+            default_end = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
+            new_event.update({
+                'isRecurring': True,
+                'recurringType': args.get('recurringType', 'daily'),
+                'recurringDays': args.get('recurringDays'),
+                'startDate': args['date'],
+                'endDate': args.get('endDate', default_end),
+                'completedDates': [],
+            })
         events.append(new_event)
         save_events(events)
+        desc = f'{new_event["event"]}（{new_event["date"]}）'
+        if new_event.get('isRecurring'):
+            rtype = {'daily': '每天', 'weekly': '每周', 'monthly': '每月'}.get(new_event['recurringType'], '')
+            desc += f'，{rtype}循环，截止 {new_event["endDate"]}'
         return {
             'success': True,
             'event': new_event,
-            'message': f'已创建日程：{new_event["event"]}（{new_event["date"]}）'
+            'message': f'已创建日程：{desc}'
         }
 
     elif name == 'update_event':
@@ -320,6 +364,10 @@ def get_system_prompt() -> str:
         f'你是 HoyoCalendar 的智能日程助手。今天是 {today_str}（{weekday}）。'
         '你可以帮用户增删改查日程。需要操作日程时，请使用提供的工具函数。'
         '如果用户询问某天的日程，先调用 list_events 查询后再回复。'
+        '你还支持创建长期循环任务（如每天背单词、每周三五健身等）。'
+        '当用户提到"每天""每周""每月"或表达长期习惯/计划时，请设置 isRecurring=true 并选择合适的 recurringType。'
+        '对于"每周X"的任务，使用 recurringType="weekly" 并在 recurringDays 中指定（0=周日,1=周一,...,6=周六）。'
+        '如果用户没有指定结束日期，可以不填 endDate，系统会默认一年。'
         '操作完成后，用简洁友好的中文回复用户操作结果。'
     )
 

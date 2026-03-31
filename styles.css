@@ -515,6 +515,8 @@ body {
   font-size: 14px;
   color: var(--text-primary);
   padding: 8px 0;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .task-input::placeholder {
@@ -1435,6 +1437,12 @@ body {
 
 .chat-input:focus {
   border-color: var(--primary-blue);
+}
+
+.chat-input,
+.settings-input {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .chat-input::placeholder {

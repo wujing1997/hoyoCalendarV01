@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 
 // 引入 lunar-javascript 库
 let Lunar, Solar, HolidayUtil;
@@ -26,6 +27,33 @@ const backendReady = (async () => {
 
 function backendUrl(path) {
   return `http://127.0.0.1:${backendPort}${path}`;
+}
+
+// Node.js http 请求封装（preload 中 fetch 不可靠）
+function httpRequest(urlPath, method = 'GET', body = null) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: '127.0.0.1',
+      port: backendPort,
+      path: urlPath,
+      method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data: JSON.parse(data) });
+        } catch (e) {
+          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data });
+        }
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
 }
 
 // 数据存储路径
@@ -293,13 +321,9 @@ contextBridge.exposeInMainWorld('aiAPI', {
   parseEvent: async (text) => {
     try {
       await backendReady;
-      const resp = await fetch(backendUrl('/api/parse'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      if (!resp.ok) throw new Error(await resp.text());
-      return await resp.json();
+      const resp = await httpRequest('/api/parse', 'POST', { text });
+      if (!resp.ok) throw new Error(JSON.stringify(resp.data));
+      return resp.data;
     } catch (err) {
       console.error('❌ AI 解析失败:', err.message);
       return null;
@@ -309,13 +333,9 @@ contextBridge.exposeInMainWorld('aiAPI', {
   parseImage: async (base64Data) => {
     try {
       await backendReady;
-      const resp = await fetch(backendUrl('/api/parse-image'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64Data }),
-      });
-      if (!resp.ok) throw new Error(await resp.text());
-      return await resp.json();
+      const resp = await httpRequest('/api/parse-image', 'POST', { image: base64Data });
+      if (!resp.ok) throw new Error(JSON.stringify(resp.data));
+      return resp.data;
     } catch (err) {
       console.error('❌ AI 图片解析失败:', err.message);
       return null;
@@ -325,12 +345,8 @@ contextBridge.exposeInMainWorld('aiAPI', {
   chat: async (message, sessionId) => {
     try {
       await backendReady;
-      const resp = await fetch(backendUrl('/api/chat'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, session_id: sessionId || 'default' }),
-      });
-      return await resp.json();
+      const resp = await httpRequest('/api/chat', 'POST', { message, session_id: sessionId || 'default' });
+      return resp.data;
     } catch (err) {
       console.error('❌ AI 对话失败:', err.message);
       return { message: `出错了：${err.message}`, events_changed: false };
@@ -340,11 +356,7 @@ contextBridge.exposeInMainWorld('aiAPI', {
   resetChat: async (sessionId) => {
     try {
       await backendReady;
-      await fetch(backendUrl('/api/chat/reset'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId || 'default' }),
-      });
+      await httpRequest('/api/chat/reset', 'POST', { session_id: sessionId || 'default' });
     } catch (e) { /* ignore */ }
   },
 });
@@ -354,8 +366,8 @@ contextBridge.exposeInMainWorld('configAPI', {
   load: async () => {
     try {
       await backendReady;
-      const resp = await fetch(backendUrl('/api/config'));
-      return await resp.json();
+      const resp = await httpRequest('/api/config', 'GET');
+      return resp.data;
     } catch (e) {
       console.error('加载配置失败:', e);
       return {};
@@ -364,12 +376,8 @@ contextBridge.exposeInMainWorld('configAPI', {
   save: async (config) => {
     try {
       await backendReady;
-      const resp = await fetch(backendUrl('/api/config'), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-      });
-      return await resp.json();
+      const resp = await httpRequest('/api/config', 'PUT', config);
+      return resp.data;
     } catch (e) {
       console.error('保存配置失败:', e);
       return { success: false };

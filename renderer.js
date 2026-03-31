@@ -1410,15 +1410,10 @@ function initInputHandlers() {
 }
 
 function addTask(text) {
-  const dateStr = LunarHelper.formatDate(state.currentDate);
-  //输出text
-  console.log(text);
-  // 使用 AI 解析
-  if (window.aiAPI && window.aiAPI.isAvailable()) {
-    addTaskWithAI(text, dateStr);
-  } else {
-    alert('AI 服务不可用，请检查配置');
-  }
+  console.log('📝 用户输入:', text);
+  // 通过 AI 对话管理日程（自动打开聊天面板显示结果）
+  if (!chatEl) showChat();
+  sendChatFromInput(text);
 }
 
 async function addTaskWithAI(text, dateStr) {
@@ -1908,8 +1903,10 @@ async function sendChatMessage() {
 
     // 如果日程有变化，刷新视图
     if (result.events_changed) {
-      loadEvents();
-      renderCurrentView();
+      loadStoredEvents();
+      refreshTaskCounts();
+      renderAgendaList();
+      renderWeekPicker(state.currentDate);
     }
   } catch (err) {
     removeChatMsg(loadingId);
@@ -1920,6 +1917,34 @@ async function sendChatMessage() {
 
   input.disabled = false;
   input.focus();
+}
+
+// 从底部输入框发送消息到聊天面板
+async function sendChatFromInput(text) {
+  chatMessages.push({ role: 'user', content: text });
+  appendChatMsg('user', text);
+
+  const loadingId = appendChatMsg('ai', '思考中...');
+
+  try {
+    const result = await window.aiAPI.chat(text, chatSessionId);
+    removeChatMsg(loadingId);
+    const reply = result.message || result.error || '操作完成';
+    chatMessages.push({ role: 'ai', content: reply });
+    appendChatMsg('ai', reply);
+
+    if (result.events_changed) {
+      loadStoredEvents();
+      refreshTaskCounts();
+      renderAgendaList();
+      renderWeekPicker(state.currentDate);
+    }
+  } catch (err) {
+    removeChatMsg(loadingId);
+    const errMsg = `出错了：${err.message}`;
+    chatMessages.push({ role: 'ai', content: errMsg });
+    appendChatMsg('ai', errMsg);
+  }
 }
 
 let _chatMsgId = 0;
