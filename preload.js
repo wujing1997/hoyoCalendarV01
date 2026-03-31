@@ -14,15 +14,18 @@ try {
   console.warn('⚠️ lunar-javascript 加载失败，使用内置农历计算:', err.message);
 }
 
-// 引入 AI 服务
-let AIService, ConfigManager;
-try {
-  const aiModule = require('./ai-service.js');
-  AIService = aiModule.AIService;
-  ConfigManager = aiModule.ConfigManager;
-  console.log('✅ AI 服务加载成功');
-} catch (err) {
-  console.warn('⚠️ AI 服务加载失败:', err.message);
+// 引入 AI 服务 — 通过 Flask 后端 HTTP API
+let backendPort = 5000;
+const backendReady = (async () => {
+  try {
+    backendPort = await ipcRenderer.invoke('get-backend-port');
+  } catch (e) {
+    console.warn('⚠️ 获取后端端口失败，使用默认 5000');
+  }
+})();
+
+function backendUrl(path) {
+  return `http://127.0.0.1:${backendPort}${path}`;
 }
 
 // 数据存储路径
@@ -283,58 +286,95 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 });
 
-// 暴露 AI 服务 API
+// 暴露 AI 服务 API（通过 Flask 后端）
 contextBridge.exposeInMainWorld('aiAPI', {
-  // 检查 AI 服务是否可用
-  isAvailable: () => !!AIService,
-  
-  // 解析文本为日程
+  isAvailable: () => true,
+
   parseEvent: async (text) => {
-    if (!AIService) {
-      console.warn('AI 服务不可用');
-      return null;
-    }
     try {
-      console.log('📋 开始 AI 解析:', text);
-      const result = await AIService.parseEvent(text);
-      console.log('📋 AI 解析结果:', result);
-      return result;
+      await backendReady;
+      const resp = await fetch(backendUrl('/api/parse'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      return await resp.json();
     } catch (err) {
       console.error('❌ AI 解析失败:', err.message);
-      console.error('❌ 完整错误:', err);
-      console.error('❌ 错误响应:', err.response?.data);
       return null;
     }
   },
-  
-  // 解析图片为日程（多模态）
+
   parseImage: async (base64Data) => {
-    if (!AIService) {
-      console.warn('AI 服务不可用');
-      return null;
-    }
     try {
-      return await AIService.parseImage(base64Data);
+      await backendReady;
+      const resp = await fetch(backendUrl('/api/parse-image'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Data }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      return await resp.json();
     } catch (err) {
-      console.error('AI 图片解析失败:', err);
+      console.error('❌ AI 图片解析失败:', err.message);
       return null;
     }
+  },
+
+  chat: async (message, sessionId) => {
+    try {
+      await backendReady;
+      const resp = await fetch(backendUrl('/api/chat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, session_id: sessionId || 'default' }),
+      });
+      return await resp.json();
+    } catch (err) {
+      console.error('❌ AI 对话失败:', err.message);
+      return { message: `出错了：${err.message}`, events_changed: false };
+    }
+  },
+
+  resetChat: async (sessionId) => {
+    try {
+      await backendReady;
+      await fetch(backendUrl('/api/chat/reset'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId || 'default' }),
+      });
+    } catch (e) { /* ignore */ }
   },
 });
 
-// 暴露配置 API
+// 暴露配置 API（通过 Flask 后端）
 contextBridge.exposeInMainWorld('configAPI', {
-  // 获取配置
-  get: (key) => ConfigManager?.get(key),
-  
-  // 设置配置
-  set: (key, value) => ConfigManager?.set(key, value),
-  
-  // 加载完整配置
-  load: () => ConfigManager?.load(),
-  
-  // 保存完整配置
-  save: (config) => ConfigManager?.save(config),
+  load: async () => {
+    try {
+      await backendReady;
+      const resp = await fetch(backendUrl('/api/config'));
+      return await resp.json();
+    } catch (e) {
+      console.error('加载配置失败:', e);
+      return {};
+    }
+  },
+  save: async (config) => {
+    try {
+      await backendReady;
+      const resp = await fetch(backendUrl('/api/config'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+      return await resp.json();
+    } catch (e) {
+      console.error('保存配置失败:', e);
+      return { success: false };
+    }
+  },
 });
 
 // 暴露事件存储 API

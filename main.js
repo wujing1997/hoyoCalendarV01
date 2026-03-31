@@ -1,8 +1,78 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
+const net = require('net');
 
 // 保持窗口对象的全局引用，避免被垃圾回收
 let mainWindow = null;
+let backendProcess = null;
+let backendPort = 5000;
+
+// 查找可用端口
+function findAvailablePort(startPort) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(startPort, '127.0.0.1', () => {
+      const port = server.address().port;
+      server.close(() => resolve(port));
+    });
+    server.on('error', () => {
+      resolve(findAvailablePort(startPort + 1));
+    });
+  });
+}
+
+// 启动 Python Flask 后端
+async function startBackend() {
+  backendPort = await findAvailablePort(5000);
+  const pythonScript = path.join(__dirname, 'backend', 'app.py');
+
+  // 尝试不同的 Python 命令
+  const pythonCommands = ['python', 'python3', 'py'];
+  for (const cmd of pythonCommands) {
+    try {
+      backendProcess = spawn(cmd, [pythonScript, String(backendPort)], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env },
+      });
+
+      return new Promise((resolve, reject) => {
+        let started = false;
+        backendProcess.stdout.on('data', (data) => {
+          const msg = data.toString();
+          console.log('[Backend]', msg.trim());
+          if (!started && msg.includes('starting on')) {
+            started = true;
+            // 等待服务就绪
+            setTimeout(resolve, 500);
+          }
+        });
+        backendProcess.stderr.on('data', (data) => {
+          console.error('[Backend ERR]', data.toString().trim());
+        });
+        backendProcess.on('error', reject);
+        backendProcess.on('exit', (code) => {
+          if (!started) reject(new Error(`Backend exited with code ${code}`));
+        });
+        // 超时
+        setTimeout(() => {
+          if (!started) { started = true; resolve(); }
+        }, 5000);
+      });
+    } catch (e) {
+      continue;
+    }
+  }
+  console.error('无法启动 Python 后端');
+}
+
+// 关闭后端
+function stopBackend() {
+  if (backendProcess) {
+    backendProcess.kill();
+    backendProcess = null;
+  }
+}
 
 function createWindow() {
   // 创建无边框透明窗口
@@ -51,7 +121,8 @@ function createWindow() {
 }
 
 // Electron 准备就绪后创建窗口
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await startBackend();
   createWindow();
 
   // macOS 特殊处理：点击 dock 图标重新创建窗口
@@ -68,6 +139,13 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+
+app.on('will-quit', () => {
+  stopBackend();
+});
+
+// IPC: 获取后端端口
+ipcMain.handle('get-backend-port', () => backendPort);
 
 // ==================== IPC 通信处理 ====================
 

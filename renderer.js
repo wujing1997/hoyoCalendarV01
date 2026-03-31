@@ -308,6 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initInputHandlers();
   initContextMenu();
   initSettings();
+  initChat();
   
   console.log('✅ HoyoCalendar 初始化完成');
 });
@@ -1610,10 +1611,17 @@ function initSettings() {
 function showSettings() {
   hideSettings();
   
-  // 加载当前配置
-  const config = window.configAPI?.load() || {
-    ai: { provider: 'doubao', doubao: { apiKey: '' }, ollama: { baseUrl: 'http://localhost:11434' } }
+  // 加载当前配置（异步）
+  const defaultConfig = {
+    ai: { provider: 'doubao', doubao: { apiKey: '', baseUrl: '', model: '' }, ollama: { baseUrl: 'http://localhost:11434', model: '', apiKey: '' }, openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1', model: '' } }
   };
+
+  (async () => {
+    let config = defaultConfig;
+    try {
+      const loaded = await window.configAPI?.load();
+      if (loaded && loaded.ai) config = loaded;
+    } catch (e) { /* use default */ }
   
   settingsEl = document.createElement('div');
   settingsEl.className = 'settings-overlay';
@@ -1640,29 +1648,61 @@ function showSettings() {
             </select>
           </div>
           
-          <div class="settings-item" id="doubaoSettings" style="${config.ai.provider !== 'doubao' ? 'display:none' : ''}">
-            <label class="settings-label">豆包 API Key</label>
-            <input type="password" class="settings-input" id="doubaoApiKey" 
-                   value="${config.ai.doubao?.apiKey || ''}" 
-                   placeholder="输入你的 ARK API Key">
+          <div id="doubaoSettings" style="${config.ai.provider !== 'doubao' ? 'display:none' : ''}">
+            <div class="settings-item">
+              <label class="settings-label">豆包 API Key</label>
+              <input type="password" class="settings-input" id="doubaoApiKey" 
+                     value="${config.ai.doubao?.apiKey || ''}" 
+                     placeholder="输入你的 ARK API Key">
+            </div>
+            <div class="settings-item">
+              <label class="settings-label">Base URL</label>
+              <input type="text" class="settings-input" id="doubaoBaseUrl" 
+                     value="${config.ai.doubao?.baseUrl || 'https://ark.cn-beijing.volces.com/api/v3'}" 
+                     placeholder="https://ark.cn-beijing.volces.com/api/v3">
+            </div>
+            <div class="settings-item">
+              <label class="settings-label">模型名称</label>
+              <input type="text" class="settings-input" id="doubaoModel" 
+                     value="${config.ai.doubao?.model || ''}" 
+                     placeholder="如 ep-xxxxxxxx">
+            </div>
           </div>
           
-          <div class="settings-item" id="ollamaSettings" style="${config.ai.provider !== 'ollama' ? 'display:none' : ''}">
-            <label class="settings-label">Ollama 地址</label>
-            <input type="text" class="settings-input" id="ollamaUrl" 
-                   value="${config.ai.ollama?.baseUrl || 'http://localhost:11434'}" 
-                   placeholder="http://localhost:11434">
+          <div id="ollamaSettings" style="${config.ai.provider !== 'ollama' ? 'display:none' : ''}">
+            <div class="settings-item">
+              <label class="settings-label">Ollama 地址</label>
+              <input type="text" class="settings-input" id="ollamaUrl" 
+                     value="${config.ai.ollama?.baseUrl || 'http://localhost:11434'}" 
+                     placeholder="http://localhost:11434">
+            </div>
+            <div class="settings-item">
+              <label class="settings-label">模型名称</label>
+              <input type="text" class="settings-input" id="ollamaModel" 
+                     value="${config.ai.ollama?.model || ''}" 
+                     placeholder="如 qwen2.5:7b">
+            </div>
           </div>
           
-          <div class="settings-item" id="openaiSettings" style="${config.ai.provider !== 'openai' ? 'display:none' : ''}">
-            <label class="settings-label">API Key</label>
-            <input type="password" class="settings-input" id="openaiApiKey" 
-                   value="${config.ai.openai?.apiKey || ''}" 
-                   placeholder="输入 API Key">
-            <label class="settings-label" style="margin-top:8px">API 地址</label>
-            <input type="text" class="settings-input" id="openaiUrl" 
-                   value="${config.ai.openai?.baseUrl || 'https://api.openai.com/v1'}" 
-                   placeholder="https://api.openai.com/v1">
+          <div id="openaiSettings" style="${config.ai.provider !== 'openai' ? 'display:none' : ''}">
+            <div class="settings-item">
+              <label class="settings-label">API Key</label>
+              <input type="password" class="settings-input" id="openaiApiKey" 
+                     value="${config.ai.openai?.apiKey || ''}" 
+                     placeholder="输入 API Key">
+            </div>
+            <div class="settings-item">
+              <label class="settings-label">API 地址</label>
+              <input type="text" class="settings-input" id="openaiUrl" 
+                     value="${config.ai.openai?.baseUrl || 'https://api.openai.com/v1'}" 
+                     placeholder="https://api.openai.com/v1">
+            </div>
+            <div class="settings-item">
+              <label class="settings-label">模型名称</label>
+              <input type="text" class="settings-input" id="openaiModel" 
+                     value="${config.ai.openai?.model || ''}" 
+                     placeholder="如 gpt-4o-mini">
+            </div>
           </div>
         </div>
         
@@ -1671,11 +1711,6 @@ function showSettings() {
           <div style="font-size:12px;color:var(--text-muted);line-height:1.6">
             <p>HoyoCalendar v1.0.0</p>
             <p>二次元风格玻璃拟态桌面日历</p>
-            <p style="margin-top:8px">
-              🎮 支持原神/崩铁等游戏活动提醒<br>
-              🤖 AI 智能日程解析<br>
-              📷 OCR 图片识别
-            </p>
           </div>
         </div>
         
@@ -1702,6 +1737,7 @@ function showSettings() {
   
   // 保存设置
   document.getElementById('saveSettings').addEventListener('click', saveSettingsData);
+  })();
 }
 
 function hideSettings() {
@@ -1711,7 +1747,7 @@ function hideSettings() {
   }
 }
 
-function saveSettingsData() {
+async function saveSettingsData() {
   if (!window.configAPI) {
     alert('配置服务不可用');
     return;
@@ -1719,19 +1755,204 @@ function saveSettingsData() {
   
   const provider = document.getElementById('aiProvider').value;
   
-  const updates = {
-    'ai.provider': provider,
-    'ai.doubao.apiKey': document.getElementById('doubaoApiKey').value,
-    'ai.ollama.baseUrl': document.getElementById('ollamaUrl').value,
-    'ai.openai.apiKey': document.getElementById('openaiApiKey').value,
-    'ai.openai.baseUrl': document.getElementById('openaiUrl').value,
+  const config = {
+    ai: {
+      provider,
+      doubao: {
+        apiKey: document.getElementById('doubaoApiKey').value,
+        baseUrl: document.getElementById('doubaoBaseUrl').value,
+        model: document.getElementById('doubaoModel').value,
+      },
+      ollama: {
+        baseUrl: document.getElementById('ollamaUrl').value,
+        model: document.getElementById('ollamaModel').value,
+      },
+      openai: {
+        apiKey: document.getElementById('openaiApiKey').value,
+        baseUrl: document.getElementById('openaiUrl').value,
+        model: document.getElementById('openaiModel').value,
+      },
+    }
   };
   
-  for (const [key, value] of Object.entries(updates)) {
-    window.configAPI.set(key, value);
-  }
+  await window.configAPI.save(config);
   
   console.log('✅ 设置已保存');
   hideSettings();
   alert('设置已保存！');
+}
+
+// ==================== AI 聊天面板 ====================
+let chatEl = null;
+let chatMessages = [];
+const chatSessionId = 'main';
+
+function initChat() {
+  const btn = document.getElementById('chatBtn');
+  if (btn) btn.addEventListener('click', toggleChat);
+}
+
+function toggleChat() {
+  if (chatEl) {
+    hideChat();
+  } else {
+    showChat();
+  }
+}
+
+function showChat() {
+  hideChat();
+  chatEl = document.createElement('div');
+  chatEl.className = 'chat-overlay';
+  chatEl.innerHTML = `
+    <div class="chat-panel">
+      <div class="chat-header">
+        <span class="chat-title">🤖 AI 日程助手</span>
+        <div class="chat-header-actions">
+          <button class="chat-action-btn" id="chatReset" title="清空对话">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/>
+            </svg>
+          </button>
+          <button class="chat-action-btn" id="chatClose" title="关闭">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-msg chat-msg-ai">
+          <div class="chat-msg-content">你好！我是 AI 日程助手，可以帮你添加、查询、修改和删除日程。试试说"帮我看看明天的日程"吧！</div>
+        </div>
+      </div>
+      <div class="chat-input-area">
+        <input type="text" class="chat-input" id="chatInput" placeholder="输入消息..." autocomplete="off">
+        <button class="chat-send-btn" id="chatSend">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M2,21L23,12L2,3V10L17,12L2,14V21Z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(chatEl);
+
+  // 重新渲染历史消息
+  renderChatHistory();
+
+  document.getElementById('chatClose').addEventListener('click', hideChat);
+  document.getElementById('chatReset').addEventListener('click', resetChat);
+  document.getElementById('chatSend').addEventListener('click', sendChatMessage);
+  document.getElementById('chatInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
+  chatEl.addEventListener('click', (e) => {
+    if (e.target === chatEl) hideChat();
+  });
+
+  document.getElementById('chatInput').focus();
+}
+
+function hideChat() {
+  if (chatEl) {
+    chatEl.remove();
+    chatEl = null;
+  }
+}
+
+function renderChatHistory() {
+  const container = document.getElementById('chatMessages');
+  if (!container) return;
+  // Keep welcome message, then append history
+  chatMessages.forEach(msg => {
+    const div = document.createElement('div');
+    div.className = `chat-msg chat-msg-${msg.role}`;
+    div.innerHTML = `<div class="chat-msg-content">${escapeHtml(msg.content)}</div>`;
+    container.appendChild(div);
+  });
+  container.scrollTop = container.scrollHeight;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chatInput');
+  const message = input.value.trim();
+  if (!message) return;
+
+  input.value = '';
+  input.disabled = true;
+
+  // 显示用户消息
+  chatMessages.push({ role: 'user', content: message });
+  appendChatMsg('user', message);
+
+  // 显示加载中
+  const loadingId = appendChatMsg('ai', '思考中...');
+
+  try {
+    const result = await window.aiAPI.chat(message, chatSessionId);
+    // 替换加载消息
+    removeChatMsg(loadingId);
+    const reply = result.message || result.error || '操作完成';
+    chatMessages.push({ role: 'ai', content: reply });
+    appendChatMsg('ai', reply);
+
+    // 如果日程有变化，刷新视图
+    if (result.events_changed) {
+      loadEvents();
+      renderCurrentView();
+    }
+  } catch (err) {
+    removeChatMsg(loadingId);
+    const errMsg = `出错了：${err.message}`;
+    chatMessages.push({ role: 'ai', content: errMsg });
+    appendChatMsg('ai', errMsg);
+  }
+
+  input.disabled = false;
+  input.focus();
+}
+
+let _chatMsgId = 0;
+function appendChatMsg(role, text) {
+  const container = document.getElementById('chatMessages');
+  if (!container) return null;
+  const id = `chat-msg-${++_chatMsgId}`;
+  const div = document.createElement('div');
+  div.className = `chat-msg chat-msg-${role}`;
+  div.id = id;
+  div.innerHTML = `<div class="chat-msg-content">${escapeHtml(text)}</div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return id;
+}
+
+function removeChatMsg(id) {
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+async function resetChat() {
+  chatMessages = [];
+  try {
+    await window.aiAPI.resetChat(chatSessionId);
+  } catch (e) { /* ignore */ }
+  const container = document.getElementById('chatMessages');
+  if (container) {
+    container.innerHTML = `
+      <div class="chat-msg chat-msg-ai">
+        <div class="chat-msg-content">对话已重置！有什么我能帮你的吗？</div>
+      </div>
+    `;
+  }
 }
