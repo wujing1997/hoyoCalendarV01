@@ -1,18 +1,151 @@
-# HoyoCalendar 技术实现文档
+# HoyoCalendar
 
-> 基于 Electron 的二次元风格（Glassmorphism 玻璃拟态）桌面悬浮日历应用
+> 玻璃拟态风格的桌面悬浮日历应用，支持 AI 对话式日程管理
+
+一款基于 Electron + Python Flask 的桌面日历工具，拥有精致的毛玻璃 UI、农历/节假日显示、三级视图切换，以及通过自然语言对话即可管理日程的 AI 助手。
+
+---
+
+## 📖 使用指南
+
+### 安装与启动
+
+**环境要求**：Node.js 18+、Python 3.8+
+
+```bash
+# 1. 安装前端依赖
+npm install
+
+# 2. 安装后端依赖
+pip install -r backend/requirements.txt
+
+# 3. 启动应用
+npm start
+```
+
+启动后，应用会自动运行 Python 后端服务并打开一个透明悬浮窗口。
+
+### 窗口操作
+
+应用窗口为无边框悬浮窗口，标题栏区域可以拖拽移动。右上角按钮从左到右依次为：
+
+| 按钮 | 功能 |
+|------|------|
+| 💬 | 打开/关闭 AI 聊天面板 |
+| ⚙️ | 打开/关闭设置面板 |
+| 📌 | 切换窗口置顶/取消置顶 |
+| ➖ | 最小化窗口 |
+| ✕ | 关闭应用 |
+
+### 日历视图
+
+应用提供三级视图，点击日期头部区域切换：
+
+- **今日视图（默认）**：顶部显示一周日期选择器，点击任意日期查看当天日程。每个日期下方的小短线表示当天有多少个任务。
+- **月视图**：点击头部的「月份」进入。7×6 网格显示整月日历，同时展示农历日期和节假日标记（休/班）。点击某天可跳回今日视图查看该日日程。
+- **年视图**：点击头部的「年份」进入。一次看到 12 个月的缩略日历，点击某月进入月视图。
+
+每个视图都有「← 返回今日」按钮，一键回到当天。
+
+### 添加日程
+
+在底部输入框中输入内容，按回车即可。输入内容会自动发送到 AI 聊天面板，由 AI 助手理解你的意思并创建日程。
+
+**示例**：
+- `明天下午3点开会` → AI 会自动创建明天 15:00 的「开会」日程
+- `每天背单词` → AI 会创建一个每日循环的长期任务
+- `每周三和周五去健身房` → AI 会创建每周三、五循环的任务
+- `删除明天的会议` → AI 会查找并删除对应日程
+- `我后天有什么安排？` → AI 会查询并告诉你
+
+你也可以点击输入框右侧的 **＋** 按钮上传图片，AI 会识别图片中的日程信息。
+
+### AI 聊天面板
+
+点击标题栏的 💬 按钮打开聊天面板。你可以在聊天中用自然语言管理所有日程：
+
+- **创建日程**：「帮我加一个下周一的项目评审」
+- **查询日程**：「这周五有什么安排」
+- **修改日程**：「把明天的会议改到后天」
+- **删除日程**：「取消周三的健身」
+- **创建长期任务**：「从明天开始每天早上7点跑步，持续到6月底」
+- **闲聊**：AI 也可以回答日程以外的问题
+
+### 管理日程
+
+- **右键日程项**：弹出菜单，可以编辑或删除日程
+- **循环任务打卡**：长期循环任务在日程列表中会显示进度条，点击可标记当天已完成
+
+### 设置 AI 服务
+
+点击标题栏的 ⚙️ 按钮打开设置面板，配置 AI 提供商：
+
+| 提供商 | 需要配置 | 说明 |
+|--------|----------|------|
+| **豆包 (Doubao)** | API Key + Model | 火山引擎的大模型服务 |
+| **Ollama** | Model | 本地运行的开源大模型，无需 API Key |
+| **OpenAI** | API Key + Model | OpenAI 官方或兼容 API |
+
+1. 选择 AI 提供商
+2. 填入对应的 API Key（Ollama 不需要）
+3. 填入模型名称（如 `doubao-seed-1-8-251228`、`llama3.2`、`gpt-4o-mini`）
+4. 点击保存
+
+### 数据存储
+
+所有日程和配置保存在本地：
+
+```
+Windows: %APPDATA%\HoyoCalendar\
+  ├── events.json    # 日程数据
+  └── config.json    # AI 配置
+```
+
+---
+
+## 🐛 常见问题
+
+### 聊天面板显示错误
+
+- 确认 Python 已安装且 `pip install -r backend/requirements.txt` 已执行
+- 重启应用让后端服务重新初始化
+
+### AI 没有反应或回复出错
+
+- 打开设置面板检查 API Key 和 Model 是否正确填写
+- 豆包用户确认 API Key 有效且模型名称正确
+- Ollama 用户确认本地服务运行中（`ollama serve`）
+
+### 窗口透明效果不生效
+
+- Windows 需要启用 Aero/桌面窗口管理器
+- 某些显卡驱动可能不支持 `backdrop-filter`
+
+### AI 无法创建长期/循环任务
+
+- 使用明确的关键词如「每天」「每周」「每月」
+- 示例：「每天晚上9点复习英语，从今天开始持续到5月底」
+
+---
+
+## 🔧 技术文档
+
+<details>
+<summary>点击展开技术实现细节</summary>
 
 ## 📁 项目结构
 
 ```
 hoyoCalendar/
-├── main.js              # Electron 主进程
-├── preload.js           # 预加载脚本（API 桥接）
-├── renderer.js          # 渲染进程逻辑
+├── main.js              # Electron 主进程（窗口管理 + 启动 Flask 后端）
+├── preload.js           # 预加载脚本（API 桥接，Node.js http 请求）
+├── renderer.js          # 渲染进程逻辑（UI 交互、视图管理）
 ├── index.html           # 主页面 HTML
 ├── styles.css           # 玻璃拟态 CSS 样式
-├── ai-service.js        # AI 服务模块
-├── ocr-service.js       # OCR 服务模块
+├── ai-service.js        # AI 服务模块（旧版，已由后端替代）
+├── backend/
+│   ├── app.py           # Python Flask 后端（AI 对话、Function Calling）
+│   └── requirements.txt # Python 依赖
 ├── package.json         # 项目配置
 └── README.md            # 本文档
 ```
@@ -21,11 +154,21 @@ hoyoCalendar/
 
 ## 🏗️ 架构设计
 
-### Electron 进程通信架构
+### 前后端分离架构
 
 ```
 ┌─────────────────────────────────────────────────────────┐
+│              Python Flask Backend (backend/app.py)       │
+│  - AI 对话 + Function Calling（增删改查日程）             │
+│  - 多 AI 提供商（豆包/Ollama/OpenAI）                    │
+│  - 日程 CRUD REST API                                    │
+│  - 长期循环任务支持                                       │
+│  - 配置管理 API                                          │
+└─────────────────────┬───────────────────────────────────┘
+                      │ HTTP (127.0.0.1:动态端口)
+┌─────────────────────▼───────────────────────────────────┐
 │                    Main Process (main.js)                │
+│  - 启动 Flask 后端（自动查找可用端口）                     │
 │  - 窗口管理（无边框、透明、置顶）                          │
 │  - IPC 通信处理                                          │
 └─────────────────────┬───────────────────────────────────┘
@@ -33,19 +176,20 @@ hoyoCalendar/
 ┌─────────────────────▼───────────────────────────────────┐
 │                 Preload Script (preload.js)              │
 │  - contextBridge 暴露安全 API                            │
+│  - Node.js http 模块与后端通信（非 fetch）                │
 │  - electronAPI: 窗口控制                                 │
-│  - eventAPI: 日程存储                                    │
-│  - lunarAPI: 农历计算                                    │
-│  - aiAPI: AI 服务                                        │
-│  - ocrAPI: OCR 服务                                      │
-│  - configAPI: 配置管理                                   │
+│  - eventAPI: 本地日程存储（fs 读写）                      │
+│  - lunarAPI: 农历计算（lunar-javascript）                 │
+│  - aiAPI: AI 对话/解析（→ Flask 后端）                    │
+│  - configAPI: 配置管理（→ Flask 后端）                    │
 └─────────────────────┬───────────────────────────────────┘
                       │ window.*API
 ┌─────────────────────▼───────────────────────────────────┐
 │               Renderer Process (renderer.js)             │
 │  - UI 渲染和交互                                         │
-│  - 三级视图管理                                          │
-│  - 日期选择和日程展示                                    │
+│  - 三级视图管理（今日/月/年）                              │
+│  - AI 聊天面板（对话式日程管理）                           │
+│  - 设置面板（AI 提供商配置）                              │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -55,13 +199,18 @@ hoyoCalendar/
 
 ### 1. main.js - 主进程
 
-**职责**：创建和管理 Electron 窗口
+**职责**：启动 Flask 后端、创建和管理 Electron 窗口
+
+**启动流程**：
+1. `findAvailablePort(5000)` — 从 5000 开始查找可用端口
+2. `startBackend()` — 依次尝试 `python`/`python3`/`py` 启动 `backend/app.py`
+3. `createWindow()` — 创建 Electron 窗口
+4. 应用退出时 `stopBackend()` 终止 Flask 进程
 
 ```javascript
-// 关键配置
+// 窗口关键配置
 const mainWindow = new BrowserWindow({
-  width: 360,
-  height: 600,
+  width: 360, height: 600,
   frame: false,           // 无边框
   transparent: true,      // 透明背景
   alwaysOnTop: true,      // 始终置顶
@@ -70,11 +219,13 @@ const mainWindow = new BrowserWindow({
     preload: path.join(__dirname, 'preload.js'),
     contextIsolation: true,
     nodeIntegration: false,
+    sandbox: false         // 允许 preload 使用 Node.js 模块
   }
 });
 ```
 
 **IPC 通信**：
+- `get-backend-port`: 返回 Flask 后端的动态端口号
 - `window-minimize`: 最小化窗口
 - `window-close`: 关闭窗口
 - `window-toggle-pin`: 切换置顶状态
@@ -82,32 +233,90 @@ const mainWindow = new BrowserWindow({
 
 ---
 
-### 2. preload.js - 预加载脚本
+### 2. backend/app.py - Python Flask 后端
 
-**职责**：作为主进程和渲染进程之间的安全桥梁
+**职责**：AI 对话式日程管理 + 日程 CRUD API
+
+#### 2.1 AI Function Calling
+
+后端使用 OpenAI SDK 的 Function Calling 机制，为 AI 提供 4 个工具函数：
+
+| 工具函数 | 说明 |
+|----------|------|
+| `list_events` | 查询日程，支持按日期/关键词过滤（含循环日程） |
+| `create_event` | 创建日程（支持一次性 + 长期循环任务） |
+| `update_event` | 修改日程信息 |
+| `delete_event` | 删除日程 |
+
+AI 对话最多进行 6 轮 Function Calling 迭代，确保复杂操作能正确完成。
+
+#### 2.2 长期循环任务
+
+`create_event` 支持创建循环任务，相关字段：
+
+| 字段 | 说明 |
+|------|------|
+| `isRecurring` | 是否为循环任务 |
+| `recurringType` | 循环类型：`daily`（每天）/ `weekly`（每周）/ `monthly`（每月） |
+| `recurringDays` | 每周重复的日期，`0`=周日, `1`=周一, ..., `6`=周六 |
+| `startDate` / `endDate` | 循环任务起止日期 |
+| `completedDates` | 已完成日期列表（用于进度追踪） |
+
+#### 2.3 REST API 路由
+
+| 路由 | 方法 | 说明 |
+|------|------|------|
+| `/api/health` | GET | 健康检查 |
+| `/api/events` | GET | 获取日程列表（`?date=`按日期过滤，含循环展开） |
+| `/api/events` | POST | 创建日程（含循环任务） |
+| `/api/events/<id>` | PUT | 更新日程 |
+| `/api/events/<id>` | DELETE | 删除日程 |
+| `/api/events/<id>/toggle-complete` | POST | 标记循环任务某天完成/未完成 |
+| `/api/chat` | POST | AI 对话（Function Calling） |
+| `/api/chat/reset` | POST | 重置对话上下文 |
+| `/api/parse` | POST | AI 自然语言解析为结构化日程 JSON |
+| `/api/parse-image` | POST | AI 多模态图片日程识别 |
+| `/api/config` | GET/PUT | 读取/保存配置 |
+
+#### 2.4 多 AI 提供商支持
+
+| 提供商 | 默认 Base URL | 备注 |
+|--------|---------------|------|
+| 豆包 (Doubao) | `https://ark.cn-beijing.volces.com/api/v3` | 火山引擎 |
+| Ollama | `http://localhost:11434/v1` | 本地部署，自动补 `/v1` |
+| OpenAI | `https://api.openai.com/v1` | 及兼容 API |
+
+---
+
+### 3. preload.js - 预加载脚本
+
+**职责**：安全 API 桥梁 + 本地数据存储
+
+**网络通信**：使用 Node.js 原生 `http` 模块（`httpRequest()` 封装）与 Flask 后端通信，而非 `fetch`（在 Electron preload 环境中不可靠）。
 
 **暴露的 API**：
 
 | API | 功能 |
 |-----|------|
 | `electronAPI` | 窗口控制（最小化、关闭、置顶） |
-| `eventAPI` | 日程 CRUD 操作 |
-| `lunarAPI` | 农历转换、节假日查询 |
-| `aiAPI` | AI 日程解析 |
-| `ocrAPI` | OCR 图片识别 |
-| `configAPI` | 配置读写 |
+| `eventAPI` | 日程本地存储 CRUD + 长期任务管理 |
+| `lunarAPI` | 农历转换、节假日、节气查询 |
+| `aiAPI` | AI 对话 (`chat`)、文本解析 (`parseEvent`)、图片解析 (`parseImage`) |
+| `configAPI` | 配置读写（→ Flask 后端） |
 
-**日程存储实现**：
+**EventStore 方法**：
 
 ```javascript
-const EventStore = {
-  loadEvents()           // 读取所有日程
-  saveEvents(events)     // 保存所有日程
-  addEvent(event)        // 添加日程
-  updateEvent(id, data)  // 更新日程
-  deleteEvent(id)        // 删除日程
-  getEventsByDate(date)  // 获取指定日期的日程
-  getTaskCounts()        // 获取每日任务数量统计
+EventStore = {
+  loadEvents()                         // 读取所有日程
+  saveEvents(events)                   // 保存所有日程
+  addEvent(event)                      // 添加日程（支持循环任务）
+  updateEvent(id, data)                // 更新日程
+  deleteEvent(id)                      // 删除日程
+  getEventsByDate(date)                // 获取指定日期日程（展开循环实例）
+  getTaskCounts()                      // 每日任务数量统计（含循环任务）
+  toggleRecurringDateComplete(id, date) // 标记循环任务某天完成
+  getRecurringEvents()                 // 获取所有循环任务
 };
 ```
 
@@ -115,367 +324,90 @@ const EventStore = {
 
 ---
 
-### 3. renderer.js - 渲染进程逻辑
+### 4. renderer.js - 渲染进程
 
-**职责**：处理所有 UI 交互和视图渲染
+**职责**：UI 渲染、视图管理、AI 聊天面板、设置面板
 
-#### 3.1 全局状态
+#### 4.1 三级视图系统
 
-```javascript
-const state = {
-  currentDate: new Date(),      // 当前选中日期
-  currentView: 'today',         // 当前视图: 'today' | 'month' | 'year'
-  isPinned: true,               // 是否置顶
-  events: [],                   // 日程列表（内存缓存）
-  taskCounts: {},               // 每日任务数量缓存
-  contextMenuTarget: null,      // 右键菜单目标
-};
+| 视图 | 内容 |
+|------|------|
+| **今日视图** | 周日期选择器 + 当天日程列表 + 任务指示器 |
+| **月视图** | 7×6 日历网格，显示公历/农历/节假日标记 |
+| **年视图** | 3×4 网格显示 12 个月缩略日历 |
+
+#### 4.2 AI 聊天面板
+
+底部输入框输入内容后统一通过 AI 对话管理日程：
+
+```
+用户输入文本 → addTask() → 打开聊天面板 → sendChatFromInput()
+    → aiAPI.chat() → Flask /api/chat → AI Function Calling
+    → 自动增删改查日程 → 返回自然语言回复 → 刷新日历 UI
 ```
 
-#### 3.2 初始化流程
+#### 4.3 设置面板
 
-```javascript
-document.addEventListener('DOMContentLoaded', () => {
-  loadStoredEvents();      // 1. 从文件加载日程
-  initWindowControls();    // 2. 初始化窗口控制按钮
-  initDateDisplay();       // 3. 初始化日期显示
-  initWeekPicker();        // 4. 初始化周日期选择器
-  initViewSwitching();     // 5. 初始化视图切换
-  initInputHandlers();     // 6. 初始化输入处理
-  initContextMenu();       // 7. 初始化右键菜单
-  initSettings();          // 8. 初始化设置面板
-});
-```
-
-#### 3.3 三级视图系统
-
-**今日视图 (Today View)**：
-- 周日期选择器：水平展示一周，每个日期下方显示任务指示器
-- 日程列表：展示当天任务，支持折叠/展开
-- 输入区：文本输入 + 图片上传
-
-**月视图 (Month View)**：
-- 7x6 网格显示
-- 每个日期显示公历 + 农历
-- 节假日标记（休/班）
-- 点击日期跳回今日视图
-
-**年视图 (Year View)**：
-- 3x4 网格显示 12 个月
-- 每月显示缩略日历
-- 点击月份进入月视图
-
-#### 3.4 视图切换逻辑
-
-```javascript
-function switchView(view) {
-  state.currentView = view;
-  
-  // 隐藏所有视图
-  elements.todayView.classList.add('hidden');
-  elements.monthView.classList.add('hidden');
-  elements.yearView.classList.add('hidden');
-  
-  // 显示目标视图并渲染
-  switch (view) {
-    case 'today':
-      elements.todayView.classList.remove('hidden');
-      renderAgendaList();
-      break;
-    case 'month':
-      elements.monthView.classList.remove('hidden');
-      renderMonthView();
-      break;
-    case 'year':
-      elements.yearView.classList.remove('hidden');
-      renderYearView();
-      break;
-  }
-}
-```
-
-#### 3.5 "返回今日"逻辑
-
-```javascript
-function goToToday() {
-  const today = new Date();           // 获取真正的今天
-  state.currentDate = today;          // 更新状态
-  updateDateDisplay(today);           // 更新头部显示
-  renderWeekPicker(today);            // 渲染包含今天的那一周
-  switchView('today');                // 切换到今日视图
-}
-```
-
-**注意**：`goToToday()` 会将日期重置为系统当前日期，而不是保持用户之前选择的日期。
-
-#### 3.6 周选择器优化
-
-为避免点击同一周内的日期时蓝色短线跳动，采用了优化策略：
-
-```javascript
-function selectDate(date) {
-  const oldDate = state.currentDate;
-  state.currentDate = date;
-  
-  // 计算新旧日期的周起始
-  const oldWeekStart = getWeekStart(oldDate);
-  const newWeekStart = getWeekStart(date);
-  
-  // 只有切换到不同周时才完全重新渲染
-  if (oldWeekStart.getTime() !== newWeekStart.getTime()) {
-    renderWeekPicker(date);
-  } else {
-    // 同一周内只更新选中状态
-    updateWeekPickerSelection();
-  }
-}
-```
+支持在 UI 中切换 AI 提供商并配置 API Key / Base URL / Model。
 
 ---
 
-### 4. ai-service.js - AI 服务模块
+### 5. styles.css - 玻璃拟态样式
 
-**职责**：调用大模型 API 进行智能日程解析
-
-#### 4.1 支持的 AI 服务
-
-| 服务 | 配置项 |
-|------|--------|
-| 豆包 (火山引擎) | `apiKey`, `baseUrl`, `model` |
-| Ollama (本地) | `baseUrl`, `model` |
-| OpenAI 兼容 | `apiKey`, `baseUrl`, `model` |
-
-#### 4.2 日程解析 Prompt
-
-```javascript
-const PARSE_PROMPT = `你是一个智能日程助手。请将用户输入的文字解析为结构化的日程信息。
-
-今天的日期是：${getTodayStr()}
-
-要求：
-1. 提取事件名称、日期、时间、地点、紧急程度
-2. 日期格式为 YYYY-MM-DD，必须根据今天日期推断：
-   - "今天" → 今天的日期
-   - "明天" → 今天+1天
-   - "后天" → 今天+2天
-   - "下周一" → 计算下周一的日期
-   - "1月30日" → 补全年份
-   - 如果无法理解日期，默认为今天
-3. 时间格式为 HH:mm（24小时制）
-4. 紧急程度：normal（普通）、high（紧急）
-5. 只返回 JSON 格式
-
-输出格式：
-{
-  "event": "事件名称",
-  "date": "2026-01-29",
-  "time": "14:30",
-  "location": "地点",
-  "urgency": "normal"
-}`;
-```
-
-#### 4.3 简单解析（无 AI 回退）
-
-当 AI 服务不可用时，使用本地规则解析：
-
-```javascript
-simpleParse(text) {
-  // 解析相对日期
-  if (text.includes('明天')) {
-    targetDate.setDate(today.getDate() + 1);
-  } else if (text.includes('后天')) {
-    targetDate.setDate(today.getDate() + 2);
-  } else if (text.includes('下周')) {
-    // 计算下周的日期...
-  }
-  
-  // 解析时间 (HH:mm)
-  const timeMatch = text.match(/(\d{1,2})[:\：](\d{2})/);
-  
-  // 检测紧急关键词
-  const urgentKeywords = ['紧急', '急', '重要', 'urgent', 'asap'];
-  
-  // 提取地点
-  const locationMatch = event.match(/(?:在|@|地点[：:])(.+?)(?:$|[，,。])/);
-  
-  return { event, date, time, location, urgency };
-}
-```
-
----
-
-### 5. ocr-service.js - OCR 服务模块
-
-**职责**：使用 Tesseract.js 进行本地 OCR 识别
-
-#### 5.1 初始化
-
-```javascript
-async initialize(language = 'chi_sim+eng') {
-  worker = await Tesseract.createWorker(language, 1, {
-    logger: (m) => {
-      console.log(`OCR [${m.status}]: ${Math.round((m.progress || 0) * 100)}%`);
-    },
-  });
-}
-```
-
-**支持的语言**：
-- `chi_sim`: 简体中文
-- `chi_tra`: 繁体中文
-- `eng`: 英语
-- 可组合使用：`chi_sim+eng`
-
-#### 5.2 识别方法
-
-```javascript
-// 从 Base64 数据识别
-async recognizeBase64(base64Data) {
-  const result = await worker.recognize(base64Data);
-  return {
-    text: result.data.text,
-    confidence: result.data.confidence,
-    words: result.data.words,
-    lines: result.data.lines,
-  };
-}
-
-// 从文件路径识别
-async recognizeImage(imagePath) {
-  const result = await worker.recognize(imagePath);
-  // ...
-}
-```
-
----
-
-### 6. styles.css - 玻璃拟态样式
-
-#### 6.1 CSS 变量定义
+#### CSS 变量
 
 ```css
 :root {
-  /* 主题色 */
-  --primary-blue: #007AFF;      /* iOS Blue */
-  --genshin-orange: #ff9f43;    /* 原神橙 */
-  --starrail-blue: #54a0ff;     /* 崩铁蓝 */
-  --code-green: #10ac84;        /* 代码绿 */
-  
-  /* 玻璃效果 */
+  --primary-blue: #007AFF;
+  --genshin-orange: #ff9f43;
+  --starrail-blue: #54a0ff;
   --glass-bg: rgba(255, 255, 255, 0.15);
   --glass-blur: 30px;
   --glass-border: rgba(255, 255, 255, 0.3);
 }
 ```
 
-#### 6.2 玻璃拟态核心
-
-```css
-.glass-container {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-}
-```
-
-#### 6.3 任务指示器（一任务一杠）
-
-```css
-.task-indicators {
-  display: flex;
-  gap: 2px;
-  min-height: 4px;
-}
-
-.task-indicator {
-  width: 6px;
-  height: 3px;
-  border-radius: 1px;
-  background: var(--starrail-blue);
-}
-```
+全局 `user-select: none` 保护 UI，输入框单独覆盖 `user-select: text`。
 
 ---
 
 ## 🔄 数据流
 
-### 添加任务流程
+### AI 对话管理日程（主流程）
 
 ```
-用户输入文本
+用户输入文本（底部输入框）
     │
     ▼
-addTask(text)
-    │
-    ├─── AI 可用? ──Yes──► addTaskWithAI()
-    │                         │
-    │                         ▼
-    │                    AI 解析返回 JSON
-    │                    { event, date, time, location, urgency }
-    │                         │
-    │                         ▼
-    │                    eventAPI.addEvent()
-    │                         │
-    No                        │
-    │                         │
-    ▼                         │
-addTaskSimple()               │
-    │                         │
-    ▼                         ▼
-本地正则解析           ◄──────┘
+addTask() → 打开聊天面板
     │
     ▼
-保存到 events.json
+sendChatFromInput(text)
     │
     ▼
-刷新 UI
-```
-
-### OCR + AI 流程
-
-```
-用户上传图片
+aiAPI.chat(message, sessionId)
+    │  (Node.js http → Flask 后端)
+    ▼
+Flask /api/chat
     │
     ▼
-fileToBase64(file)
+OpenAI SDK + Function Calling（最多 6 轮）
+    │
+    ├── list_events() ──► 查询日程
+    ├── create_event() ──► 创建日程（含循环任务）
+    ├── update_event() ──► 修改日程
+    └── delete_event() ──► 删除日程
     │
     ▼
-ocrAPI.recognizeBase64()
+返回 { message, events_changed }
     │
     ▼
-OCR 结果文本
-    │
-    ├─── AI 可用? ──Yes──► aiAPI.parseOCRResult()
-    │                         │
-    │                         ▼
-    │                    解析为结构化日程
-    │                         │
-    No                        │
-    │                         │
-    ▼                         ▼
-addTaskSimple()    ◄──────────┘
-    │
-    ▼
-保存并刷新 UI
+显示 AI 回复 + 如果 events_changed 则刷新 UI
 ```
 
 ---
 
-## ⚙️ 配置说明
-
-### 配置文件位置
-
-```
-Windows: %APPDATA%\HoyoCalendar\config.json
-macOS:   ~/Library/Application Support/HoyoCalendar/config.json
-Linux:   ~/.config/HoyoCalendar/config.json
-```
-
-### 配置结构
+## ⚙️ 配置结构
 
 ```json
 {
@@ -495,72 +427,47 @@ Linux:   ~/.config/HoyoCalendar/config.json
       "baseUrl": "https://api.openai.com/v1",
       "model": "gpt-4o-mini"
     }
-  },
-  "ocr": {
-    "language": "chi_sim+eng"
   }
 }
 ```
 
 ---
 
-## 🚀 启动和运行
+##  依赖说明
 
-```bash
-# 安装依赖
-npm install
+### 前端 (npm)
 
-# 启动应用
-npm start
+| 包名 | 用途 |
+|------|------|
+| electron | 桌面应用框架 |
+| lunar-javascript | 农历计算、节假日、节气查询 |
 
-# 开发模式（打开 DevTools）
-# 在 main.js 中取消注释：
-# mainWindow.webContents.openDevTools({ mode: 'detach' });
-```
+### 后端 (pip)
 
----
-
-## 📦 依赖说明
-
-| 包名 | 版本 | 用途 |
-|------|------|------|
-| electron | ^40.1.0 | 桌面应用框架 |
-| lunar-javascript | ^1.6.12 | 农历计算、节假日查询 |
-| axios | ^1.6.0 | HTTP 请求（AI API 调用） |
-| tesseract.js | ^5.0.0 | 本地 OCR 识别 |
-| electron-store | ^8.1.0 | 本地数据存储 |
+| 包名 | 用途 |
+|------|------|
+| flask | Web 框架 |
+| flask-cors | 跨域支持 |
+| openai | AI SDK（兼容豆包/Ollama/OpenAI） |
 
 ---
 
-## 🐛 常见问题
-
-### 1. OCR 识别不到文字
-
-- 确保图片清晰、文字对比度高
-- 检查控制台日志查看 OCR 初始化状态
-- 第一次使用需要下载语言包，请耐心等待
-
-### 2. AI 解析失败
-
-- 检查 API Key 是否正确配置
-- 检查网络连接
-- 查看控制台错误信息
-
-### 3. 透明效果不生效
-
-- Windows: 需要启用 Aero 效果
-- 某些 GPU 可能不支持 `backdrop-filter`
-
----
-
-## 📝 版本历史
+##  版本历史
 
 ### v1.0.0 (2026-01-29)
 
-- ✅ 初始化 Electron 项目，无边框透明窗口
-- ✅ 玻璃拟态 CSS 样式实现
-- ✅ 集成 lunar-javascript，实现农历/节假日
+- ✅ Electron 无边框透明窗口 + 玻璃拟态样式
+- ✅ 集成 lunar-javascript 农历/节假日
 - ✅ 任务增删改查及本地存储
 - ✅ 三级视图切换（今日/月/年）
-- ✅ OCR + AI 智能日程提取
-- ✅ 一任务一杠动态渲染
+
+### v1.1.0 (2026-03-31)
+
+- ✅ 重构为 Electron + Python Flask 前后端分离架构
+- ✅ AI 对话式日程管理（Function Calling）
+- ✅ 多 AI 提供商支持（豆包/Ollama/OpenAI）
+- ✅ 长期循环任务支持（每天/每周/每月）
+- ✅ 聊天面板 + 设置面板
+- ✅ preload 使用 Node.js http 模块替代 fetch
+
+</details>
