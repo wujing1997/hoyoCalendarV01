@@ -4,6 +4,20 @@ const path = require('path');
 const net = require('net');
 const http = require('http');
 
+// 单实例锁：确保只能打开一个 HoyoCalendar
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // 第二个实例启动时，聚焦已有窗口
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
 // 保持窗口对象的全局引用，避免被垃圾回收
 let mainWindow = null;
 let backendProcess = null;

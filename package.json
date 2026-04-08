@@ -1,6 +1,6 @@
 {
   "name": "hoyocalendar",
-  "version": "0.1.0",
+  "version": "1.5.0",
   "description": "二次元风格玻璃拟态桌面悬浮日历应用",
   "main": "main.js",
   "scripts": {
@@ -21,7 +21,7 @@
   "type": "commonjs",
   "build": {
     "appId": "com.hoyocalendar.app",
-    "productName": "HoYoCalenderV01",
+    "productName": "HoYoCalendarV1.5",
     "directories": {
       "output": "dist"
     },
@@ -51,7 +51,7 @@
       ]
     },
     "portable": {
-      "artifactName": "HoYoCalenderV01.exe"
+      "artifactName": "HoYoCalendarV1.5.exe"
     }
   },
   "devDependencies": {

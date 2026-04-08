@@ -309,6 +309,17 @@ document.addEventListener('DOMContentLoaded', () => {
   initContextMenu();
   initSettings();
   initChat();
+
+  // 后端就绪后自动刷新日程显示
+  if (window.electronAPI?.onBackendReady) {
+    window.electronAPI.onBackendReady((ready) => {
+      if (ready) {
+        console.log('🔄 后端就绪，刷新日程...');
+        loadStoredEvents();
+        switchView(state.currentView);
+      }
+    });
+  }
   
   console.log('✅ HoyoCalendar 初始化完成');
 });
