@@ -312,6 +312,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onPinStatusChanged: (callback) => {
     ipcRenderer.on('pin-status-changed', (event, isPinned) => callback(isPinned));
   },
+
+  // 监听后端就绪
+  onBackendReady: (callback) => {
+    ipcRenderer.on('backend-ready', (event, ready) => callback(ready));
+  },
+
+  // 开机自启动
+  getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
+  setAutoLaunch: (enable) => ipcRenderer.invoke('set-auto-launch', enable),
 });
 
 // 暴露 AI 服务 API（通过 Flask 后端）

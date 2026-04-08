@@ -1617,6 +1617,12 @@ function showSettings() {
       const loaded = await window.configAPI?.load();
       if (loaded && loaded.ai) config = loaded;
     } catch (e) { /* use default */ }
+
+    // 读取开机自启状态
+    let autoLaunch = false;
+    try {
+      autoLaunch = await window.electronAPI?.getAutoLaunch();
+    } catch (e) { /* ignore */ }
   
   settingsEl = document.createElement('div');
   settingsEl.className = 'settings-overlay';
@@ -1702,6 +1708,17 @@ function showSettings() {
         </div>
         
         <div class="settings-section">
+          <div class="settings-section-title">通用设置</div>
+          <div class="settings-item" style="display:flex;align-items:center;justify-content:space-between;">
+            <label class="settings-label" style="margin-bottom:0;">开机自启动</label>
+            <label class="auto-launch-switch">
+              <input type="checkbox" id="autoLaunchToggle" ${autoLaunch ? 'checked' : ''}>
+              <span class="auto-launch-slider"></span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="settings-section">
           <div class="settings-section-title">关于</div>
           <div style="font-size:12px;color:var(--text-muted);line-height:1.6">
             <p>HoyoCalendar v1.0.0</p>
@@ -1732,6 +1749,16 @@ function showSettings() {
   
   // 保存设置
   document.getElementById('saveSettings').addEventListener('click', saveSettingsData);
+  
+  // 开机自启动切换
+  document.getElementById('autoLaunchToggle').addEventListener('change', async (e) => {
+    try {
+      await window.electronAPI?.setAutoLaunch(e.target.checked);
+    } catch (err) {
+      console.error('设置开机自启动失败:', err);
+      e.target.checked = !e.target.checked;
+    }
+  });
   })();
 }
 
