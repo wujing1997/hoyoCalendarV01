@@ -45,13 +45,17 @@
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": ["x64"]
         }
       ]
     },
-    "portable": {
-      "artifactName": "HoYoCalendarV1.5.exe"
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "artifactName": "HoYoCalendarV1.5-setup.exe",
+      "shortcutName": "HoYoCalendar"
     }
   },
   "devDependencies": {

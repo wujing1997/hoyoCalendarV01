@@ -30,7 +30,7 @@ function backendUrl(path) {
 }
 
 // Node.js http 请求封装（preload 中 fetch 不可靠）
-function httpRequest(urlPath, method = 'GET', body = null) {
+function httpRequest(urlPath, method = 'GET', body = null, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: '127.0.0.1',
@@ -38,6 +38,7 @@ function httpRequest(urlPath, method = 'GET', body = null) {
       path: urlPath,
       method,
       headers: { 'Content-Type': 'application/json' },
+      timeout: timeoutMs,
     };
     const req = http.request(options, (res) => {
       let data = '';
@@ -50,7 +51,8 @@ function httpRequest(urlPath, method = 'GET', body = null) {
         }
       });
     });
-    req.on('error', reject);
+    req.on('error', (err) => reject(err));
+    req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')); });
     if (body) req.write(JSON.stringify(body));
     req.end();
   });

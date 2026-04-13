@@ -296,6 +296,15 @@ const elements = {
 };
 
 // ==================== 初始化 ====================
+
+// 渲染进程全局错误捕获
+window.onerror = (msg, src, line, col, err) => {
+  console.error(`[Renderer Error] ${msg} at ${src}:${line}:${col}`, err);
+};
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[Renderer] Unhandled Promise rejection:', event.reason);
+});
+
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🎮 HoyoCalendar 初始化中...');
   
