@@ -42,7 +42,7 @@ HoYoCalendar 是一款面向日常效率工作的 Windows 桌面日程工具。V
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/wujing1997/hoyoCalendarV01/releases)
+从 [GitHub Releases](https://github.com/wujing1997/hoyoCalendarV1/releases)
 下载 `HoYoCalendarV3.0-setup.exe` 并运行。
 
 安装包内已包含 Electron 应用与 Python Agent 服务，普通使用不需要另外安装
