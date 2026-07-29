@@ -106,6 +106,30 @@ const EventStore = {
     const events = this.loadEvents();
     event.id = generateUniqueId();
     event.createdAt = new Date().toISOString();
+    if (Number(event.targetDurationMinutes) > 0) {
+      event.targetDurationMinutes = Number(event.targetDurationMinutes);
+    } else {
+      delete event.targetDurationMinutes;
+    }
+    event.timerRecords = event.timerRecords || {};
+
+    if (event.isDeadline) {
+      const startDate = event.startDate || event.date;
+      const deadlineDate = event.deadlineDate || event.endDate || event.date;
+      event.date = startDate;
+      event.startDate = startDate;
+      event.deadlineDate = deadlineDate;
+      event.isDeadlineCompleted = !!event.isDeadlineCompleted;
+      if (!event.isDeadlineCompleted) {
+        delete event.completedAt;
+      }
+      delete event.isRecurring;
+      delete event.recurringType;
+      delete event.recurringDays;
+      delete event.completedDates;
+      events.push(event);
+      return this.saveEvents(events) ? event : null;
+    }
     
     // 如果是长期任务，保存原始任务并展开为子任务
     if (event.isRecurring) {
@@ -124,7 +148,29 @@ const EventStore = {
     const events = this.loadEvents();
     const index = events.findIndex(e => e.id === id);
     if (index !== -1) {
+      if (Object.prototype.hasOwnProperty.call(updates, 'targetDurationMinutes')) {
+        if (Number(updates.targetDurationMinutes) > 0) {
+          updates.targetDurationMinutes = Number(updates.targetDurationMinutes);
+        } else {
+          delete updates.targetDurationMinutes;
+          delete events[index].targetDurationMinutes;
+        }
+      }
+      if (updates.isDeadline) {
+        updates.startDate = updates.startDate || updates.date || events[index].startDate || events[index].date;
+        updates.deadlineDate = updates.deadlineDate || updates.endDate || events[index].deadlineDate || events[index].endDate || updates.startDate;
+        updates.date = updates.startDate;
+        delete updates.isRecurring;
+        delete updates.recurringType;
+        delete updates.recurringDays;
+        delete updates.completedDates;
+      }
       events[index] = { ...events[index], ...updates, updatedAt: new Date().toISOString() };
+      if (events[index].isDeadline) {
+        events[index].startDate = events[index].startDate || events[index].date;
+        events[index].deadlineDate = events[index].deadlineDate || events[index].endDate || events[index].date;
+        events[index].date = events[index].startDate;
+      }
       return this.saveEvents(events) ? events[index] : null;
     }
     return null;
@@ -149,7 +195,17 @@ const EventStore = {
     const result = [];
     
     events.forEach(e => {
-      if (e.isRecurring) {
+      if (e.isDeadline) {
+        if (this.isDateInDeadlineRange(dateStr, e)) {
+          result.push({
+            ...e,
+            date: dateStr,
+            isDeadlineInstance: true,
+            deadlineParentId: e.id,
+            daysRemaining: this.calculateDaysRemaining(dateStr, e.deadlineDate),
+          });
+        }
+      } else if (e.isRecurring) {
         // 长期任务：检查该日期是否在范围内
         if (this.isDateInRecurringRange(dateStr, e)) {
           // 创建当日实例，保留父任务引用
@@ -170,6 +226,28 @@ const EventStore = {
     });
     
     return result;
+  },
+
+  parseLocalDate(dateStr) {
+    const [year, month, day] = String(dateStr || '').split('-').map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day);
+  },
+
+  calculateDaysRemaining(dateStr, deadlineDateStr) {
+    const date = this.parseLocalDate(dateStr);
+    const deadlineDate = this.parseLocalDate(deadlineDateStr);
+    if (!date || !deadlineDate) return null;
+    return Math.max(0, Math.ceil((deadlineDate - date) / (1000 * 60 * 60 * 24)));
+  },
+
+  isDateInDeadlineRange(dateStr, event) {
+    if (event.isDeadlineCompleted) return false;
+    const date = this.parseLocalDate(dateStr);
+    const startDate = this.parseLocalDate(event.startDate || event.date);
+    const deadlineDate = this.parseLocalDate(event.deadlineDate || event.endDate);
+    if (!date || !startDate || !deadlineDate) return false;
+    return date >= startDate && date <= deadlineDate;
   },
   
   // 检查日期是否在长期任务范围内
@@ -253,6 +331,64 @@ const EventStore = {
     }
     return null;
   },
+
+  completeDeadlineEvent(parentId) {
+    const events = this.loadEvents();
+    const index = events.findIndex(e => String(e.id) === String(parentId));
+
+    if (index !== -1 && events[index].isDeadline) {
+      events[index].isDeadlineCompleted = true;
+      events[index].completedAt = new Date().toISOString();
+      events[index].updatedAt = new Date().toISOString();
+      return this.saveEvents(events) ? events[index] : null;
+    }
+    return null;
+  },
+
+  // 获取指定任务某天的计时记录
+  getTimerRecord(eventId, dateStr) {
+    const events = this.loadEvents();
+    const event = events.find(e => String(e.id) === String(eventId));
+    if (!event) return null;
+    const records = event.timerRecords || {};
+    return records[dateStr] || { elapsedSeconds: 0, runningSince: null };
+  },
+
+  // 开始指定任务某天的计时
+  startTimer(eventId, dateStr) {
+    const events = this.loadEvents();
+    const index = events.findIndex(e => String(e.id) === String(eventId));
+    if (index === -1) return null;
+    const event = events[index];
+    event.timerRecords = event.timerRecords || {};
+    const record = event.timerRecords[dateStr] || { elapsedSeconds: 0, runningSince: null };
+    if (!record.runningSince) {
+      record.runningSince = new Date().toISOString();
+    }
+    record.elapsedSeconds = Number(record.elapsedSeconds) || 0;
+    event.timerRecords[dateStr] = record;
+    event.updatedAt = new Date().toISOString();
+    return this.saveEvents(events) ? event : null;
+  },
+
+  // 结束指定任务某天的计时，并累计本次用时
+  stopTimer(eventId, dateStr) {
+    const events = this.loadEvents();
+    const index = events.findIndex(e => String(e.id) === String(eventId));
+    if (index === -1) return null;
+    const event = events[index];
+    event.timerRecords = event.timerRecords || {};
+    const record = event.timerRecords[dateStr];
+    if (!record || !record.runningSince) return event;
+    const startedAt = new Date(record.runningSince).getTime();
+    const now = Date.now();
+    const deltaSeconds = Number.isFinite(startedAt) ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
+    record.elapsedSeconds = (Number(record.elapsedSeconds) || 0) + deltaSeconds;
+    record.runningSince = null;
+    event.timerRecords[dateStr] = record;
+    event.updatedAt = new Date().toISOString();
+    return this.saveEvents(events) ? event : null;
+  },
   
   // 获取所有长期任务
   getRecurringEvents() {
@@ -272,7 +408,19 @@ const EventStore = {
     const counts = {};
     
     events.forEach(e => {
-      if (e.isRecurring) {
+      if (e.isDeadline) {
+        if (e.isDeadlineCompleted) return;
+        const startDate = this.parseLocalDate(e.startDate || e.date);
+        const deadlineDate = this.parseLocalDate(e.deadlineDate || e.endDate);
+        if (!startDate || !deadlineDate) return;
+        let d = new Date(startDate);
+
+        while (d <= deadlineDate) {
+          const dateStr = this.formatDate(d);
+          counts[dateStr] = (counts[dateStr] || 0) + 1;
+          d.setDate(d.getDate() + 1);
+        }
+      } else if (e.isRecurring) {
         // 长期任务：统计范围内的每一天
         const startDate = new Date(e.startDate);
         const endDate = new Date(e.endDate);
@@ -332,7 +480,7 @@ contextBridge.exposeInMainWorld('aiAPI', {
   parseEvent: async (text) => {
     try {
       await backendReady;
-      const resp = await httpRequest('/api/parse', 'POST', { text });
+      const resp = await httpRequest('/api/parse', 'POST', { text }, 120000);
       if (!resp.ok) throw new Error(JSON.stringify(resp.data));
       return resp.data;
     } catch (err) {
@@ -344,7 +492,7 @@ contextBridge.exposeInMainWorld('aiAPI', {
   parseImage: async (base64Data) => {
     try {
       await backendReady;
-      const resp = await httpRequest('/api/parse-image', 'POST', { image: base64Data });
+      const resp = await httpRequest('/api/parse-image', 'POST', { image: base64Data }, 120000);
       if (!resp.ok) throw new Error(JSON.stringify(resp.data));
       return resp.data;
     } catch (err) {
@@ -356,7 +504,7 @@ contextBridge.exposeInMainWorld('aiAPI', {
   chat: async (message, sessionId) => {
     try {
       await backendReady;
-      const resp = await httpRequest('/api/chat', 'POST', { message, session_id: sessionId || 'default' });
+      const resp = await httpRequest('/api/chat', 'POST', { message, session_id: sessionId || 'default' }, 180000);
       return resp.data;
     } catch (err) {
       console.error('❌ AI 对话失败:', err.message);
@@ -409,6 +557,11 @@ contextBridge.exposeInMainWorld('eventAPI', {
   // 长期任务相关
   toggleRecurringDateComplete: (parentId, dateStr) => EventStore.toggleRecurringDateComplete(parentId, dateStr),
   getRecurringEvents: () => EventStore.getRecurringEvents(),
+  completeDeadlineEvent: (parentId) => EventStore.completeDeadlineEvent(parentId),
+  // 计时相关
+  getTimerRecord: (eventId, dateStr) => EventStore.getTimerRecord(eventId, dateStr),
+  startTimer: (eventId, dateStr) => EventStore.startTimer(eventId, dateStr),
+  stopTimer: (eventId, dateStr) => EventStore.stopTimer(eventId, dateStr),
 });
 
 // 暴露农历 API

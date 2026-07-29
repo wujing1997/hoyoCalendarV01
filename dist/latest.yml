@@ -1,0 +1,8 @@
+version: 2.3.0
+files:
+  - url: HoYoCalendarV2.3-setup.exe
+    sha512: 2eOafyMmc/T9hu7nwM47qlmi8MqlsPVKacAR7aBkWWvJli6RaDMr2MdpopoQssLgPCfc2GhQJCJVIukNoVN+1Q==
+    size: 159117584
+path: HoYoCalendarV2.3-setup.exe
+sha512: 2eOafyMmc/T9hu7nwM47qlmi8MqlsPVKacAR7aBkWWvJli6RaDMr2MdpopoQssLgPCfc2GhQJCJVIukNoVN+1Q==
+releaseDate: '2026-07-29T07:36:32.172Z'

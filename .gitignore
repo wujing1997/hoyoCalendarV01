@@ -36,6 +36,9 @@ desktop.ini
 *.log
 npm-debug.log*
 
+# Superpowers visual brainstorming sessions
+.superpowers/
+
 # Legacy files (contain sensitive data)
 Doubao.py
 AI_CALL_FLOW.md

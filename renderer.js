@@ -223,7 +223,11 @@ const state = {
   taskCounts: {},               // 每日任务数量缓存
   contextMenuTarget: null,      // 右键菜单目标
   collapsedTasks: {},           // 折叠状态 { eventId: true/false }
+  monthWheelDelta: 0,            // 月视图滚轮累计偏移
+  lastMonthWheelAt: 0,           // 月视图上次切换月份时间
 };
+
+let timerRefreshInterval = null;
 
 // 加载保存的折叠状态
 function loadCollapsedState() {
@@ -288,6 +292,7 @@ const elements = {
   
   // 月视图元素
   monthGrid: document.getElementById('monthGrid'),
+  monthGridViewport: document.getElementById('monthGridViewport'),
   backFromMonth: document.getElementById('backFromMonth'),
   
   // 年视图元素
@@ -314,10 +319,12 @@ document.addEventListener('DOMContentLoaded', () => {
   initDateDisplay();
   initWeekPicker();
   initViewSwitching();
+  initMonthWheelNavigation();
   initInputHandlers();
   initContextMenu();
   initSettings();
   initChat();
+  startTimerRefreshLoop();
 
   // 后端就绪后自动刷新日程显示
   if (window.electronAPI?.onBackendReady) {
@@ -353,6 +360,168 @@ function refreshTaskCounts() {
   if (window.eventAPI) {
     state.taskCounts = window.eventAPI.getTaskCounts() || {};
   }
+}
+
+function getTimerOwnerId(event) {
+  if (event.isRecurringInstance && event.recurringParentId) return event.recurringParentId;
+  if (event.isDeadlineInstance && event.deadlineParentId) return event.deadlineParentId;
+  return event.id;
+}
+
+function getTimerDate(event) {
+  return event.date || LunarHelper.formatDate(state.currentDate);
+}
+
+function getTimerRecord(event, dateStr = getTimerDate(event)) {
+  const records = event.timerRecords || {};
+  return records[dateStr] || { elapsedSeconds: 0, runningSince: null };
+}
+
+function getEventsForDate(dateStr) {
+  if (window.eventAPI) {
+    return window.eventAPI.getEventsByDate(dateStr) || [];
+  }
+  return state.events.filter(e => e.date === dateStr);
+}
+
+function sortEventsByTime(events) {
+  events.sort((a, b) => {
+    if (!a.time && !b.time) return 0;
+    if (!a.time) return 1;
+    if (!b.time) return -1;
+    return a.time.localeCompare(b.time);
+  });
+  return events;
+}
+
+function getDeadlineOwnerId(event) {
+  return event.isDeadlineInstance && event.deadlineParentId ? event.deadlineParentId : event.id;
+}
+
+function parseDateOnly(dateStr) {
+  const [year, month, day] = String(dateStr || '').split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+}
+
+function calculateDaysRemaining(dateStr, deadlineDateStr) {
+  const date = parseDateOnly(dateStr);
+  const deadlineDate = parseDateOnly(deadlineDateStr);
+  if (!date || !deadlineDate) return null;
+  return Math.max(0, Math.ceil((deadlineDate - date) / (1000 * 60 * 60 * 24)));
+}
+
+function formatDeadlineText(event) {
+  const daysRemaining = Number.isFinite(Number(event.daysRemaining))
+    ? Number(event.daysRemaining)
+    : calculateDaysRemaining(event.date || LunarHelper.formatDate(state.currentDate), event.deadlineDate);
+  if (!Number.isFinite(daysRemaining)) return '';
+  return daysRemaining === 0 ? '今天截止' : `还剩 ${daysRemaining} 天`;
+}
+
+function parseChineseNumber(text) {
+  const map = {
+    '零': 0,
+    '〇': 0,
+    '一': 1,
+    '二': 2,
+    '两': 2,
+    '三': 3,
+    '四': 4,
+    '五': 5,
+    '六': 6,
+    '七': 7,
+    '八': 8,
+    '九': 9,
+  };
+  if (!text) return null;
+  if (text === '十') return 10;
+  if (text.startsWith('十')) {
+    const tail = text.length > 1 ? map[text.slice(1)] || 0 : 0;
+    return 10 + tail;
+  }
+  if (text.includes('十')) {
+    const [head, tail] = text.split('十');
+    return (map[head] || 1) * 10 + (tail ? map[tail] || 0 : 0);
+  }
+  return map[text] ?? null;
+}
+
+function parseDurationMinutes(text) {
+  if (!text) return null;
+  if (/半\s*(?:个)?\s*小时/.test(text)) return 30;
+  const numberPattern = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十]+)';
+  const hourMatch = text.match(new RegExp(`${numberPattern}\\s*(?:个)?\\s*(?:小时|钟头)`));
+  if (hourMatch) {
+    const raw = hourMatch[1];
+    const hours = /^\d/.test(raw) ? Number(raw) : parseChineseNumber(raw);
+    return hours > 0 ? Math.round(hours * 60) : null;
+  }
+  const minuteMatch = text.match(new RegExp(`${numberPattern}\\s*(?:分钟|分)`));
+  if (minuteMatch) {
+    const raw = minuteMatch[1];
+    const minutes = /^\d/.test(raw) ? Number(raw) : parseChineseNumber(raw);
+    return minutes > 0 ? Math.round(minutes) : null;
+  }
+  return null;
+}
+
+function getTargetDurationMinutes(event) {
+  const explicitTarget = Number(event.targetDurationMinutes) || 0;
+  return explicitTarget > 0 ? explicitTarget : (parseDurationMinutes(event.event) || 0);
+}
+
+function getElapsedSeconds(record) {
+  const base = Number(record?.elapsedSeconds) || 0;
+  if (!record?.runningSince) return base;
+  const startedAt = new Date(record.runningSince).getTime();
+  if (!Number.isFinite(startedAt)) return base;
+  return base + Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+}
+
+function formatTimerDuration(totalSeconds) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds || 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function refreshRunningTimerDisplays() {
+  document.querySelectorAll('.task-timer').forEach(timerEl => {
+    const button = timerEl.querySelector('.timer-toggle.running');
+    if (!button) return;
+
+    const taskEl = timerEl.closest('.task-item');
+    const eventId = timerEl.dataset.eventId;
+    const date = timerEl.dataset.date;
+    const event = state.events.find(e => String(e.id) === String(eventId));
+    const record = window.eventAPI?.getTimerRecord(eventId, date);
+    if (!taskEl || !event || !record) return;
+
+    const elapsedSeconds = getElapsedSeconds(record);
+    const targetMinutes = getTargetDurationMinutes(event);
+    const timeEl = timerEl.querySelector('.timer-time');
+    if (timeEl) {
+      timeEl.textContent = `${formatTimerDuration(elapsedSeconds)}${targetMinutes > 0 ? ` / ${formatTimerDuration(targetMinutes * 60)}` : ''}`;
+    }
+
+    const fillEl = timerEl.querySelector('.timer-progress-fill');
+    if (fillEl && targetMinutes > 0) {
+      const timerPercent = Math.min(100, Math.round(elapsedSeconds / (targetMinutes * 60) * 100));
+      fillEl.style.width = `${timerPercent}%`;
+    }
+  });
+
+}
+
+function startTimerRefreshLoop() {
+  if (timerRefreshInterval) return;
+  timerRefreshInterval = setInterval(() => {
+    if (document.querySelector('.timer-toggle.running')) {
+      refreshRunningTimerDisplays();
+    }
+  }, 1000);
 }
 
 // ==================== 窗口控制 ====================
@@ -571,6 +740,29 @@ function initViewSwitching() {
   });
 }
 
+function initMonthWheelNavigation() {
+  elements.monthView.addEventListener('wheel', (event) => {
+    if (state.currentView !== 'month') return;
+    
+    event.preventDefault();
+    
+    const now = Date.now();
+    const cooldownMs = 180;
+    const threshold = 80;
+    
+    state.monthWheelDelta += event.deltaY;
+    
+    if (Math.abs(state.monthWheelDelta) < threshold) return;
+    if (now - state.lastMonthWheelAt < cooldownMs) return;
+    
+    const direction = state.monthWheelDelta > 0 ? 1 : -1;
+    state.monthWheelDelta = 0;
+    state.lastMonthWheelAt = now;
+    
+    shiftCurrentMonth(direction);
+  }, { passive: false });
+}
+
 function goToToday() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -606,9 +798,46 @@ function switchView(view) {
 }
 
 // ==================== 月视图渲染 ====================
-function renderMonthView() {
+function shiftCurrentMonth(offset) {
+  const current = state.currentDate;
+  const selectedDay = current.getDate();
+  const targetYear = current.getFullYear();
+  const targetMonth = current.getMonth() + offset;
+  const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const clampedDay = Math.min(selectedDay, daysInTargetMonth);
+  
+  const nextDate = new Date(targetYear, targetMonth, clampedDay);
+  nextDate.setHours(0, 0, 0, 0);
+  
+  state.currentDate = nextDate;
+  updateDateDisplay(nextDate);
+  renderWeekPicker(nextDate);
+  renderMonthView(offset > 0 ? 'next' : 'prev');
+}
+
+function renderMonthView(direction = null) {
   const year = state.currentDate.getFullYear();
   const month = state.currentDate.getMonth();
+  let previousGrid = null;
+
+  if (direction && elements.monthGrid.children.length > 0) {
+    const gridRect = elements.monthGrid.getBoundingClientRect();
+    const viewportRect = elements.monthGridViewport.getBoundingClientRect();
+
+    previousGrid = elements.monthGrid.cloneNode(true);
+    previousGrid.removeAttribute('id');
+    previousGrid.classList.remove('month-grid-enter-next', 'month-grid-enter-prev');
+    previousGrid.classList.add(
+      'month-grid-ghost',
+      direction === 'next' ? 'month-grid-exit-next' : 'month-grid-exit-prev'
+    );
+    previousGrid.style.left = `${gridRect.left - viewportRect.left}px`;
+    previousGrid.style.top = `${gridRect.top - viewportRect.top}px`;
+    previousGrid.style.width = `${gridRect.width}px`;
+    previousGrid.style.height = `${gridRect.height}px`;
+    elements.monthGridViewport.appendChild(previousGrid);
+    previousGrid.addEventListener('animationend', () => previousGrid.remove(), { once: true });
+  }
   
   // 当月第一天
   const firstDay = new Date(year, month, 1);
@@ -631,7 +860,8 @@ function renderMonthView() {
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month, day);
     const isToday = isSameDay(date, today);
-    const dayEl = createMonthDayElement(day, false, isToday, date);
+    const isSelected = isSameDay(date, state.currentDate);
+    const dayEl = createMonthDayElement(day, false, isToday, isSelected, date);
     elements.monthGrid.appendChild(dayEl);
   }
   
@@ -642,13 +872,20 @@ function renderMonthView() {
     const dayEl = createMonthDayElement(i, true);
     elements.monthGrid.appendChild(dayEl);
   }
+
+  if (direction) {
+    elements.monthGrid.classList.remove('month-grid-enter-next', 'month-grid-enter-prev');
+    void elements.monthGrid.offsetWidth;
+    elements.monthGrid.classList.add(direction === 'next' ? 'month-grid-enter-next' : 'month-grid-enter-prev');
+  }
 }
 
-function createMonthDayElement(day, isOtherMonth, isToday = false, date = null) {
+function createMonthDayElement(day, isOtherMonth, isToday = false, isSelected = false, date = null) {
   const dayEl = document.createElement('div');
   dayEl.className = 'month-day';
   if (isOtherMonth) dayEl.classList.add('other-month');
   if (isToday) dayEl.classList.add('today');
+  if (isSelected) dayEl.classList.add('selected');
   
   // 获取农历和节假日信息
   let lunarText = '--';
@@ -757,22 +994,7 @@ function generateMiniMonth(year, month) {
 // ==================== 日程列表渲染 ====================
 function renderAgendaList() {
   const dateStr = LunarHelper.formatDate(state.currentDate);
-  
-  // 从存储中获取当天的事件，或从 state 中筛选
-  let todayEvents;
-  if (window.eventAPI) {
-    todayEvents = window.eventAPI.getEventsByDate(dateStr) || [];
-  } else {
-    todayEvents = state.events.filter(e => e.date === dateStr);
-  }
-  
-  // 按时间排序
-  todayEvents.sort((a, b) => {
-    if (!a.time && !b.time) return 0;
-    if (!a.time) return 1;
-    if (!b.time) return -1;
-    return a.time.localeCompare(b.time);
-  });
+  const todayEvents = sortEventsByTime(getEventsForDate(dateStr));
   
   // 清除所有任务项
   const existingItems = elements.agendaList.querySelectorAll('.task-item');
@@ -811,6 +1033,10 @@ function createTaskElement(event) {
   if (event.urgency === 'high' || event.urgency === 'urgent') {
     taskEl.classList.add('urgent');
   }
+
+  if (event.isDeadline || event.isDeadlineInstance) {
+    taskEl.classList.add('deadline');
+  }
   
   // 长期任务标记
   if (event.isRecurringInstance || event.isRecurring) {
@@ -824,6 +1050,42 @@ function createTaskElement(event) {
   const locationHtml = event.location 
     ? `<div class="task-location"><span class="location-icon">📍</span>${escapeHtml(event.location)}</div>` 
     : '';
+  const deadlineText = event.isDeadline || event.isDeadlineInstance ? formatDeadlineText(event) : '';
+  const deadlineHtml = deadlineText ? `
+        <div class="task-deadline">
+          <span class="deadline-icon">⏳</span>
+          <span>${deadlineText}</span>
+          <span class="deadline-date">截止 ${escapeHtml(event.deadlineDate || '')}</span>
+        </div>
+      ` : '';
+  const tagHtml = event.isDeadline || event.isDeadlineInstance
+    ? '<span class="task-tag deadline-tag">截止</span>'
+    : (event.isRecurringInstance || event.isRecurring
+      ? '<span class="task-tag recurring-tag">长期</span>'
+      : (event.urgency === 'high' || event.urgency === 'urgent'
+        ? '<span class="task-tag urgent-tag">重点</span>'
+        : '<span class="task-tag normal-tag">日程</span>'));
+  const timerDate = getTimerDate(event);
+  const timerRecord = getTimerRecord(event, timerDate);
+  const elapsedSeconds = getElapsedSeconds(timerRecord);
+  const targetMinutes = getTargetDurationMinutes(event);
+  const shouldShowTimer = targetMinutes > 0 || elapsedSeconds > 0 || timerRecord.runningSince;
+  const timerPercent = targetMinutes > 0 ? Math.min(100, Math.round(elapsedSeconds / (targetMinutes * 60) * 100)) : 0;
+  const timerHtml = shouldShowTimer ? `
+      <div class="task-timer" data-event-id="${getTimerOwnerId(event)}" data-date="${timerDate}">
+        <div class="timer-row">
+          <span class="timer-time">${formatTimerDuration(elapsedSeconds)}${targetMinutes > 0 ? ` / ${formatTimerDuration(targetMinutes * 60)}` : ''}</span>
+          <button class="timer-toggle ${timerRecord.runningSince ? 'running' : ''}" type="button">
+            ${timerRecord.runningSince ? '结束' : '开始'}
+          </button>
+        </div>
+        ${targetMinutes > 0 ? `
+          <div class="timer-progress">
+            <div class="timer-progress-fill" style="width: ${timerPercent}%"></div>
+          </div>
+        ` : ''}
+      </div>
+    ` : '';
   
   // 长期任务进度条（无论是否完成都显示）
   let progressHtml = '';
@@ -848,19 +1110,67 @@ function createTaskElement(event) {
   taskEl.innerHTML = `
     ${checkboxHtml}
     <div class="task-content">
-      <div class="task-time">${timeDisplay}</div>
+      <div class="task-meta">
+        <div class="task-time">${timeDisplay}</div>
+        ${tagHtml}
+      </div>
       <div class="task-title">${escapeHtml(event.event)}</div>
       <div class="task-details">
         ${locationHtml}
+        ${deadlineHtml}
       </div>
       ${progressHtml}
+      ${timerHtml}
     </div>
   `;
+
+  const timerButton = taskEl.querySelector('.timer-toggle');
+  if (timerButton) {
+    timerButton.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!window.eventAPI) return;
+      const ownerId = getTimerOwnerId(event);
+      const date = getTimerDate(event);
+      const record = getTimerRecord(event, date);
+      if (record.runningSince) {
+        window.eventAPI.stopTimer(ownerId, date);
+      } else {
+        window.eventAPI.startTimer(ownerId, date);
+      }
+      state.events = window.eventAPI.loadEvents();
+      renderAgendaList();
+    });
+  }
   
-  // 长期任务：点击整个任务条即完成当日任务
-  if (event.isRecurringInstance) {
+  if (event.isDeadline || event.isDeadlineInstance) {
     taskEl.addEventListener('click', function(e) {
-      if (!e.target.closest('.context-menu')) {
+      if (!e.target.closest('.context-menu') && !e.target.closest('.task-timer')) {
+        e.stopPropagation();
+        const parentId = getDeadlineOwnerId(event);
+
+        if (window.eventAPI && window.eventAPI.completeDeadlineEvent) {
+          window.eventAPI.completeDeadlineEvent(parentId);
+          state.events = window.eventAPI.loadEvents();
+        } else {
+          const index = state.events.findIndex(item => String(item.id) === String(parentId));
+          if (index !== -1) {
+            state.events[index] = {
+              ...state.events[index],
+              isDeadlineCompleted: true,
+              completedAt: new Date().toISOString(),
+            };
+          }
+        }
+        refreshTaskCounts();
+        renderAgendaList();
+        renderWeekPicker(state.currentDate);
+      }
+    });
+  } else if (event.isRecurringInstance) {
+    // 长期任务：点击整个任务条即完成当日任务
+    taskEl.addEventListener('click', function(e) {
+      if (!e.target.closest('.context-menu') && !e.target.closest('.task-timer')) {
         e.stopPropagation();
         const parentId = event.recurringParentId;
         const date = event.date;
@@ -876,7 +1186,7 @@ function createTaskElement(event) {
   } else {
     // 非长期任务：单击折叠/展开
     taskEl.addEventListener('click', function(e) {
-      if (!e.target.closest('.context-menu')) {
+      if (!e.target.closest('.context-menu') && !e.target.closest('.task-timer')) {
         const key = this.dataset.collapseKey;
         toggleTaskCollapsed(key);
         this.classList.toggle('collapsed');
@@ -919,14 +1229,17 @@ function showContextMenu(x, y, event) {
   contextMenuEl = document.createElement('div');
   contextMenuEl.className = 'context-menu';
   
-  // 判断是否为长期任务
-  const isLongTerm = event.isRecurring || event.isRecurringInstance;
+  // 判断是否为长期任务或 deadline 任务
+  const isLongTerm = event.isRecurring || event.isRecurringInstance || event.isDeadline || event.isDeadlineInstance;
+  const editDatesLabel = event.isDeadline || event.isDeadlineInstance ? '📅 修改截止日期' : '📅 修改起止日期';
   
   if (isLongTerm) {
-    // 长期任务：修改起止日期
     contextMenuEl.innerHTML = `
+      <div class="context-menu-item" data-action="edit">
+        ✏️ 编辑
+      </div>
       <div class="context-menu-item" data-action="edit-dates">
-        📅 修改起止日期
+        ${editDatesLabel}
       </div>
       <div class="context-menu-item danger" data-action="delete">
         🗑️ 删除
@@ -980,7 +1293,15 @@ function handleContextMenuAction(action, event) {
   switch (action) {
     case 'edit':
       // 短期任务编辑：事件/时间/地点/紧急程度
-      showEditModal(event, 'all');
+      if (event.isRecurringInstance && event.recurringParentId) {
+        const parentEvent = state.events.find(e => String(e.id) === String(event.recurringParentId));
+        showEditModal(parentEvent || event, 'all');
+      } else if (event.isDeadlineInstance && event.deadlineParentId) {
+        const parentEvent = state.events.find(e => String(e.id) === String(event.deadlineParentId));
+        showEditModal(parentEvent || event, 'all');
+      } else {
+        showEditModal(event, 'all');
+      }
       break;
       
     case 'convert-to-longterm':
@@ -1011,6 +1332,14 @@ function showEditModal(event, mode = 'all') {
   overlay.className = 'edit-modal-overlay';
   
   const dateValue = event.date || LunarHelper.formatDate(state.currentDate);
+  const isDeadlineEvent = event.isDeadline || event.isDeadlineInstance;
+  const deadlineFieldHtml = isDeadlineEvent ? `
+      <div class="edit-modal-field">
+        <label class="edit-modal-label">截止日期</label>
+        <input type="date" class="edit-modal-input" id="edit-deadline-date"
+               value="${event.deadlineDate || event.endDate || dateValue}">
+      </div>
+    ` : '';
   
   overlay.innerHTML = `
     <div class="edit-modal">
@@ -1034,6 +1363,14 @@ function showEditModal(event, mode = 'all') {
                  value="${event.time || ''}" placeholder="如 14:30">
         </div>
       </div>
+
+      <div class="edit-modal-field">
+        <label class="edit-modal-label">每日目标时长（分钟）</label>
+        <input type="number" min="1" step="1" class="edit-modal-input" id="edit-target-duration"
+               value="${getTargetDurationMinutes(event) || ''}" placeholder="例如 120">
+      </div>
+
+      ${deadlineFieldHtml}
       
       <div class="edit-modal-field">
         <label class="edit-modal-label">地点</label>
@@ -1088,20 +1425,35 @@ function showEditModal(event, mode = 'all') {
     const newEvent = overlay.querySelector('#edit-event').value.trim();
     const newDate = overlay.querySelector('#edit-date').value;
     const newTime = overlay.querySelector('#edit-time').value;
+    const targetDurationValue = overlay.querySelector('#edit-target-duration').value.trim();
+    const targetDurationMinutes = targetDurationValue ? Number(targetDurationValue) : null;
     const newLocation = overlay.querySelector('#edit-location').value.trim();
+    const newDeadlineDate = isDeadlineEvent ? overlay.querySelector('#edit-deadline-date').value : null;
     
     if (!newEvent) {
       overlay.querySelector('#edit-event').focus();
       return;
     }
+
+    if (isDeadlineEvent && (!newDeadlineDate || newDate > newDeadlineDate)) {
+      alert('截止日期不能为空，且不能早于开始日期');
+      return;
+    }
     
-    updateEvent(event.id, {
+    const updates = {
       event: newEvent,
       date: newDate,
       time: newTime,
       location: newLocation,
-      urgency: selectedUrgency
-    });
+      urgency: selectedUrgency,
+      targetDurationMinutes: Number.isFinite(targetDurationMinutes) && targetDurationMinutes > 0 ? targetDurationMinutes : null
+    };
+    if (isDeadlineEvent) {
+      updates.isDeadline = true;
+      updates.startDate = newDate;
+      updates.deadlineDate = newDeadlineDate;
+    }
+    updateEvent(event.id, updates);
     
     hideEditModal();
   });
@@ -1236,6 +1588,8 @@ function showConvertToLongTermModal(event) {
       startDate: startDate,
       endDate: endDate,
       completedDates: [],
+      targetDurationMinutes: event.targetDurationMinutes,
+      timerRecords: event.timerRecords || {},
     };
     
     if (window.eventAPI) {
@@ -1284,11 +1638,17 @@ function showEditDatesModal(event) {
     if (parentEvent) {
       actualEvent = parentEvent;
     }
+  } else if (event.isDeadlineInstance && event.deadlineParentId) {
+    const parentEvent = state.events.find(e => String(e.id) === String(event.deadlineParentId));
+    if (parentEvent) {
+      actualEvent = parentEvent;
+    }
   }
+  const isDeadlineEvent = actualEvent.isDeadline || actualEvent.isDeadlineInstance;
   
   overlay.innerHTML = `
     <div class="edit-modal">
-      <div class="edit-modal-title">📅 修改起止日期</div>
+      <div class="edit-modal-title">${isDeadlineEvent ? '📅 修改截止日期' : '📅 修改起止日期'}</div>
       
       <div class="edit-modal-field">
         <label class="edit-modal-label">事件内容</label>
@@ -1302,9 +1662,9 @@ function showEditDatesModal(event) {
                  value="${actualEvent.startDate || ''}">
         </div>
         <div class="edit-modal-field">
-          <label class="edit-modal-label">结束日期</label>
+          <label class="edit-modal-label">${isDeadlineEvent ? '截止日期' : '结束日期'}</label>
           <input type="date" class="edit-modal-input" id="edit-end-date" 
-                 value="${actualEvent.endDate || ''}">
+                 value="${isDeadlineEvent ? (actualEvent.deadlineDate || actualEvent.endDate || '') : (actualEvent.endDate || '')}">
         </div>
       </div>
       
@@ -1336,10 +1696,17 @@ function showEditDatesModal(event) {
       return;
     }
     
-    updateEvent(actualEvent.id, {
+    const updates = {
       startDate: startDate,
-      endDate: endDate
-    });
+    };
+    if (isDeadlineEvent) {
+      updates.isDeadline = true;
+      updates.date = startDate;
+      updates.deadlineDate = endDate;
+    } else {
+      updates.endDate = endDate;
+    }
+    updateEvent(actualEvent.id, updates);
     
     hideEditModal();
   });
@@ -1454,8 +1821,24 @@ async function addTaskWithAI(text, dateStr) {
     for (const event of events) {
       let newEvent;
       
-      // 检查是否为长期任务
-      if (event.isRecurring) {
+      if (event.isDeadline) {
+        console.log('⏳ 检测到 deadline 任务:', event);
+        const startDate = event.startDate || event.date || dateStr;
+        newEvent = {
+          event: event.event || text,
+          date: startDate,
+          time: event.time || '',
+          location: event.location || '',
+          urgency: event.urgency || 'normal',
+          isDeadline: true,
+          startDate,
+          deadlineDate: event.deadlineDate || event.endDate || startDate,
+          isDeadlineCompleted: false,
+          targetDurationMinutes: event.targetDurationMinutes,
+          timerRecords: {},
+        };
+      } else if (event.isRecurring) {
+        // 检查是否为长期任务
         console.log('🔄 检测到长期任务:', event);
         newEvent = {
           event: event.event || text,
@@ -1468,6 +1851,8 @@ async function addTaskWithAI(text, dateStr) {
           startDate: event.startDate || dateStr,
           endDate: event.endDate || dateStr,
           completedDates: [],
+          targetDurationMinutes: event.targetDurationMinutes,
+          timerRecords: {},
         };
       } else {
         // 普通任务
@@ -1478,6 +1863,8 @@ async function addTaskWithAI(text, dateStr) {
           time: event.time || '',
           location: event.location || '',
           urgency: event.urgency || 'normal',
+          targetDurationMinutes: event.targetDurationMinutes,
+          timerRecords: {},
         };
       }
       
@@ -1541,8 +1928,17 @@ async function handleImageUpload(file) {
         time: event.time || '',
         location: event.location || '',
         urgency: event.urgency || 'normal',
+        targetDurationMinutes: event.targetDurationMinutes,
+        timerRecords: {},
         source: 'image',
       };
+      if (event.isDeadline) {
+        newEvent.isDeadline = true;
+        newEvent.startDate = event.startDate || eventDate;
+        newEvent.deadlineDate = event.deadlineDate || event.endDate || eventDate;
+        newEvent.isDeadlineCompleted = false;
+        newEvent.date = newEvent.startDate;
+      }
       
       if (window.eventAPI) {
         window.eventAPI.addEvent(newEvent);
@@ -1913,7 +2309,10 @@ function renderChatHistory() {
   chatMessages.forEach(msg => {
     const div = document.createElement('div');
     div.className = `chat-msg chat-msg-${msg.role}`;
-    div.innerHTML = `<div class="chat-msg-content">${escapeHtml(msg.content)}</div>`;
+    div.innerHTML = getChatMsgContentHtml(msg.content, {
+      addedCount: msg.addedCount,
+      deletedCount: msg.deletedCount,
+    });
     container.appendChild(div);
   });
   container.scrollTop = container.scrollHeight;
@@ -1929,6 +2328,7 @@ async function sendChatMessage() {
   const input = document.getElementById('chatInput');
   const message = input.value.trim();
   if (!message) return;
+  const beforeEventCount = getStoredEventCount();
 
   input.value = '';
   input.disabled = true;
@@ -1945,8 +2345,10 @@ async function sendChatMessage() {
     // 替换加载消息
     removeChatMsg(loadingId);
     const reply = result.message || result.error || '操作完成';
-    chatMessages.push({ role: 'ai', content: reply });
-    appendChatMsg('ai', reply);
+    const addedCount = getCreatedCountFromChatResult(result, beforeEventCount);
+    const deletedCount = getDeletedCountFromChatResult(result, beforeEventCount);
+    chatMessages.push({ role: 'ai', content: reply, addedCount, deletedCount });
+    appendChatMsg('ai', reply, { addedCount, deletedCount });
 
     // 如果日程有变化，刷新视图
     if (result.events_changed) {
@@ -1968,6 +2370,7 @@ async function sendChatMessage() {
 
 // 从底部输入框发送消息到聊天面板
 async function sendChatFromInput(text) {
+  const beforeEventCount = getStoredEventCount();
   chatMessages.push({ role: 'user', content: text });
   appendChatMsg('user', text);
 
@@ -1977,8 +2380,10 @@ async function sendChatFromInput(text) {
     const result = await window.aiAPI.chat(text, chatSessionId);
     removeChatMsg(loadingId);
     const reply = result.message || result.error || '操作完成';
-    chatMessages.push({ role: 'ai', content: reply });
-    appendChatMsg('ai', reply);
+    const addedCount = getCreatedCountFromChatResult(result, beforeEventCount);
+    const deletedCount = getDeletedCountFromChatResult(result, beforeEventCount);
+    chatMessages.push({ role: 'ai', content: reply, addedCount, deletedCount });
+    appendChatMsg('ai', reply, { addedCount, deletedCount });
 
     if (result.events_changed) {
       loadStoredEvents();
@@ -1995,17 +2400,58 @@ async function sendChatFromInput(text) {
 }
 
 let _chatMsgId = 0;
-function appendChatMsg(role, text) {
+function appendChatMsg(role, text, options = {}) {
   const container = document.getElementById('chatMessages');
   if (!container) return null;
   const id = `chat-msg-${++_chatMsgId}`;
   const div = document.createElement('div');
   div.className = `chat-msg chat-msg-${role}`;
   div.id = id;
-  div.innerHTML = `<div class="chat-msg-content">${escapeHtml(text)}</div>`;
+  div.innerHTML = getChatMsgContentHtml(text, options);
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
   return id;
+}
+
+function getChatMsgContentHtml(text, options = {}) {
+  const addedCount = options.addedCount || 0;
+  const deletedCount = options.deletedCount || 0;
+  const addedBadge = addedCount > 0
+    ? `<span class="chat-change-badge chat-added-badge">+${addedCount}</span>`
+    : '';
+  const deletedBadge = deletedCount > 0
+    ? `<span class="chat-change-badge chat-deleted-badge">-${deletedCount}</span>`
+    : '';
+  return `<div class="chat-msg-content">${addedBadge}${deletedBadge}${escapeHtml(text)}</div>`;
+}
+
+function getStoredEventCount() {
+  if (window.eventAPI) {
+    return (window.eventAPI.loadEvents() || []).length;
+  }
+  return state.events.length;
+}
+
+function getCreatedCountFromChatResult(result, beforeEventCount) {
+  if (Number.isFinite(result?.created_count)) {
+    return Math.max(0, Number(result.created_count));
+  }
+  
+  if (!result?.events_changed) return 0;
+  
+  const afterEventCount = getStoredEventCount();
+  return Math.max(0, afterEventCount - beforeEventCount);
+}
+
+function getDeletedCountFromChatResult(result, beforeEventCount) {
+  if (Number.isFinite(result?.deleted_count)) {
+    return Math.max(0, Number(result.deleted_count));
+  }
+  
+  if (!result?.events_changed) return 0;
+  
+  const afterEventCount = getStoredEventCount();
+  return Math.max(0, beforeEventCount - afterEventCount);
 }
 
 function removeChatMsg(id) {
