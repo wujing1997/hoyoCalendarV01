@@ -3,119 +3,355 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://ark.cn-beijing.volces.com https://api.openai.com http://localhost:*;">
-  <title>HoyoCalendar</title>
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:*;"
+  >
+  <title>HoYoCalendar V3.0</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-  <!-- 主容器 - 玻璃拟态卡片 -->
-  <div class="glass-container" id="app">
-    
-    <!-- 标题栏 - 可拖拽区域 -->
-    <header class="titlebar" id="titlebar">
-      <div class="titlebar-left">
-        <span class="app-icon">📅</span>
-        <span class="app-title">HoyoCalendar</span>
+<body data-theme="light">
+  <div class="app-shell" id="appShell">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand-cluster">
+          <span class="brand-mark" aria-hidden="true">
+            <i data-lucide="calendar-days"></i>
+          </span>
+          <span class="brand-name">HoYoCalendar</span>
+        </div>
+        <div class="date-navigator">
+          <button class="icon-btn" id="previousDate" title="上一个日期" aria-label="上一个日期">
+            <i data-lucide="chevron-left"></i>
+          </button>
+          <button class="date-title-button" id="dateTitleButton" title="选择日期"></button>
+          <button class="icon-btn" id="nextDate" title="下一个日期" aria-label="下一个日期">
+            <i data-lucide="chevron-right"></i>
+          </button>
+          <button class="text-btn today-button" id="todayButton">今天</button>
+        </div>
       </div>
-      <div class="titlebar-controls">
-        <button class="control-btn chat-btn-icon" id="chatBtn" title="AI 聊天">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-            <path d="M20,2H4A2,2 0 0,0 2,4V22L6,18H20A2,2 0 0,0 22,16V4C22,2.89 21.1,2 20,2M6,9H18V11H6M14,14H6V12H14M18,8H6V6H18"/>
-          </svg>
+
+      <div class="topbar-center">
+        <div class="segmented-control" id="viewSwitch" role="tablist" aria-label="日历视图">
+          <button class="segment active" data-view="day" role="tab" aria-selected="true">日</button>
+          <button class="segment" data-view="week" role="tab" aria-selected="false">周</button>
+          <button class="segment" data-view="month" role="tab" aria-selected="false">月</button>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <button class="icon-btn top-search" id="searchButton" title="搜索日程" aria-label="搜索日程">
+          <i data-lucide="search"></i>
         </button>
-        <button class="control-btn settings-btn-icon" id="settingsBtn" title="设置">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-            <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/>
-          </svg>
+        <button class="icon-btn" id="assistantButton" title="日程助手" aria-label="打开日程助手">
+          <i data-lucide="sparkles"></i>
+          <span class="service-dot" id="serviceDot" aria-hidden="true"></span>
         </button>
-        <button class="control-btn pin-btn" id="pinBtn" title="切换置顶">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-            <path d="M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z"/>
-          </svg>
+        <button class="icon-btn top-theme" id="themeButton" title="切换明暗主题" aria-label="切换明暗主题">
+          <i data-lucide="moon" id="themeIcon"></i>
         </button>
-        <button class="control-btn minimize-btn" id="minimizeBtn" title="最小化">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-            <path d="M19,13H5V11H19V13Z"/>
-          </svg>
+        <button class="icon-btn" id="settingsButton" title="设置" aria-label="打开设置">
+          <i data-lucide="settings"></i>
         </button>
-        <button class="control-btn close-btn" id="closeBtn" title="关闭">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-            <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
-          </svg>
+        <button class="icon-btn pin-button" id="pinButton" title="置顶窗口" aria-label="置顶窗口" aria-pressed="false">
+          <i data-lucide="pin"></i>
+        </button>
+        <button class="icon-btn window-control" id="minimizeButton" title="最小化" aria-label="最小化">
+          <i data-lucide="minus"></i>
+        </button>
+        <button class="icon-btn window-control maximize-button" id="maximizeButton" title="最大化" aria-label="最大化">
+          <i data-lucide="square"></i>
+        </button>
+        <button class="icon-btn window-control close-button" id="closeButton" title="关闭" aria-label="关闭">
+          <i data-lucide="x"></i>
         </button>
       </div>
     </header>
 
-    <!-- 日期头部 - 点击可切换视图 -->
-    <section class="date-header">
-      <div class="date-info">
-        <span class="year clickable" id="yearLabel">2026</span>
-        <span class="separator">年</span>
-        <span class="month clickable" id="monthLabel">1</span>
-        <span class="separator">月</span>
-      </div>
-      <div class="lunar-info" id="lunarInfo">农历 腊月 十一</div>
-      <div class="holiday-badge" id="holidayBadge"></div>
-    </section>
+    <div class="workspace">
+      <aside class="sidebar">
+        <section class="mini-calendar">
+          <div class="mini-calendar-head">
+            <strong id="miniCalendarTitle"></strong>
+            <div class="mini-calendar-actions">
+              <button class="icon-btn small" id="previousMonth" title="上个月" aria-label="上个月">
+                <i data-lucide="chevron-left"></i>
+              </button>
+              <button class="icon-btn small" id="nextMonth" title="下个月" aria-label="下个月">
+                <i data-lucide="chevron-right"></i>
+              </button>
+            </div>
+          </div>
+          <div class="mini-weekdays" aria-hidden="true">
+            <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+          </div>
+          <div class="mini-days" id="miniDays"></div>
+        </section>
 
-    <!-- 今日视图 - 默认显示 -->
-    <section class="view-container" id="todayView">
-      <!-- 周日期选择器 -->
-      <div class="week-picker" id="weekPicker">
-        <!-- 动态生成日期项 -->
-      </div>
+        <nav class="sidebar-group" aria-label="日程范围">
+          <p class="sidebar-label">日程</p>
+          <button class="nav-item active" data-nav="today">
+            <i data-lucide="crosshair"></i>
+            <span>今天</span>
+            <span class="nav-count" id="todayCount">0</span>
+          </button>
+          <button class="nav-item" data-nav="upcoming">
+            <i data-lucide="calendar-range"></i>
+            <span>未来七天</span>
+            <span class="nav-count" id="upcomingCount">0</span>
+          </button>
+          <button class="nav-item" data-nav="all">
+            <i data-lucide="list-todo"></i>
+            <span>全部任务</span>
+            <span class="nav-count" id="allCount">0</span>
+          </button>
+        </nav>
 
-      <!-- 日程列表 -->
-      <div class="agenda-list" id="agendaList">
-        <div class="empty-state" id="emptyState">
-          <span class="empty-icon">🎮</span>
-          <p>今日暂无日程</p>
-          <p class="empty-hint">输入文字或拖入图片添加任务</p>
-        </div>
-        <!-- 任务项将在这里动态渲染 -->
-      </div>
+        <section class="sidebar-group">
+          <p class="sidebar-label">日历</p>
+          <button class="calendar-source active" data-calendar="个人">
+            <span class="source-dot personal"></span>
+            <span>个人</span>
+            <i data-lucide="check"></i>
+          </button>
+          <button class="calendar-source active" data-calendar="工作">
+            <span class="source-dot work"></span>
+            <span>工作</span>
+            <i data-lucide="check"></i>
+          </button>
+        </section>
 
-      <!-- 输入区域 -->
-      <div class="input-area">
-        <div class="input-wrapper">
-          <input type="text" 
-                 class="task-input" 
-                 id="taskInput" 
-                 placeholder="输入日程或拖入图片..."
-                 autocomplete="off">
-          <label class="upload-btn" id="uploadBtn" title="上传图片">
-            <input type="file" id="imageInput" accept="image/*" hidden>
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/>
-            </svg>
-          </label>
-        </div>
-      </div>
-    </section>
+        <button class="assistant-entry" id="sidebarAssistant">
+          <i data-lucide="sparkles"></i>
+          <span>
+            <strong>日程助手</strong>
+            <small>批量调整与复杂查询</small>
+          </span>
+          <i data-lucide="chevron-right"></i>
+        </button>
+      </aside>
 
-    <!-- 月视图 - 隐藏 -->
-    <section class="view-container hidden" id="monthView">
-      <div class="month-grid-header">
-        <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
-      </div>
-      <div class="month-grid-viewport" id="monthGridViewport">
-        <div class="month-grid" id="monthGrid">
-          <!-- 动态生成月份网格 -->
-        </div>
-      </div>
-      <button class="back-btn" id="backFromMonth">← 返回今日</button>
-    </section>
+      <main class="main-panel">
+        <div class="compact-week" id="compactWeek"></div>
 
-    <!-- 年视图 - 隐藏 -->
-    <section class="view-container hidden" id="yearView">
-      <div class="year-grid" id="yearGrid">
-        <!-- 动态生成 12 个月缩略图 -->
-      </div>
-      <button class="back-btn" id="backFromYear">← 返回今日</button>
-    </section>
+        <header class="main-header">
+          <div class="main-heading">
+            <h1 id="mainDateTitle"></h1>
+            <p id="daySummary"></p>
+          </div>
+          <div class="main-header-actions">
+            <div class="mobile-view-switch segmented-control" role="tablist" aria-label="日历视图">
+              <button class="segment active" data-view="day" role="tab" aria-selected="true">日</button>
+              <button class="segment" data-view="week" role="tab" aria-selected="false">周</button>
+              <button class="segment" data-view="month" role="tab" aria-selected="false">月</button>
+            </div>
+            <button class="text-btn focus-button" id="focusButton" aria-pressed="false">
+              <i data-lucide="focus"></i>
+              <span>仅看未完成</span>
+            </button>
+          </div>
+        </header>
 
+        <div class="view-content" id="viewContent"></div>
+
+        <footer class="composer">
+          <div class="parse-preview" id="parsePreview">
+            <span>支持日期、时间、时长、重复与截止日期</span>
+          </div>
+          <div class="composer-row">
+            <button class="icon-btn" id="composerAssistant" title="交给日程助手" aria-label="交给日程助手">
+              <i data-lucide="sparkles"></i>
+            </button>
+            <label class="sr-only" for="quickInput">快速添加日程</label>
+            <input
+              id="quickInput"
+              class="composer-input"
+              type="text"
+              autocomplete="off"
+              placeholder="例如：明天 9 点项目会议 45 分钟"
+            >
+            <button class="composer-submit" id="quickSubmit" title="添加日程" aria-label="添加日程">
+              <i data-lucide="plus"></i>
+            </button>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="details-panel">
+        <header class="details-head">
+          <strong>任务详情</strong>
+          <div class="details-actions">
+            <button class="icon-btn small" id="duplicateDetail" title="复制任务" aria-label="复制任务">
+              <i data-lucide="copy"></i>
+            </button>
+            <button class="icon-btn small danger-hover" id="deleteDetail" title="删除任务" aria-label="删除任务">
+              <i data-lucide="trash-2"></i>
+            </button>
+          </div>
+        </header>
+        <div id="detailsContent"></div>
+      </aside>
+    </div>
   </div>
 
+  <div class="popover-menu" id="taskMenu" role="menu" aria-hidden="true">
+    <button class="menu-item" data-menu-action="edit" role="menuitem">
+      <i data-lucide="pencil"></i><span>编辑详情</span>
+    </button>
+    <button class="menu-item" data-menu-action="duplicate" role="menuitem">
+      <i data-lucide="copy"></i><span>复制任务</span>
+    </button>
+    <div class="menu-divider"></div>
+    <button class="menu-item danger" data-menu-action="delete" role="menuitem">
+      <i data-lucide="trash-2"></i><span>删除</span>
+    </button>
+  </div>
+
+  <div class="overlay" id="searchOverlay" aria-hidden="true">
+    <section class="dialog search-dialog" role="dialog" aria-modal="true" aria-label="搜索日程">
+      <div class="search-box">
+        <i data-lucide="search"></i>
+        <label class="sr-only" for="searchInput">搜索日程</label>
+        <input id="searchInput" type="search" autocomplete="off" placeholder="搜索标题、地点或任务类型">
+        <button class="icon-btn" data-close-overlay="searchOverlay" title="关闭" aria-label="关闭搜索">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="search-results" id="searchResults"></div>
+    </section>
+  </div>
+
+  <div class="overlay" id="assistantOverlay" aria-hidden="true">
+    <section class="dialog assistant-dialog" role="dialog" aria-modal="true" aria-label="日程助手">
+      <header class="dialog-head">
+        <div class="dialog-title">
+          <i data-lucide="sparkles"></i>
+          <span>日程助手</span>
+          <span class="status-label" id="assistantStatus">检查服务中</span>
+        </div>
+        <div class="dialog-actions">
+          <button class="icon-btn small" id="resetAssistant" title="清空对话" aria-label="清空对话">
+            <i data-lucide="rotate-ccw"></i>
+          </button>
+          <button class="icon-btn small" data-close-overlay="assistantOverlay" title="关闭" aria-label="关闭日程助手">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+      </header>
+      <div class="assistant-body" id="assistantBody">
+        <div class="assistant-message">
+          复杂查询、批量移动和删除任务可以在这里完成。
+        </div>
+        <div class="assistant-suggestions">
+          <button class="suggestion-button">检查明天有没有时间冲突</button>
+          <button class="suggestion-button">把本周未完成的任务移到周五</button>
+          <button class="suggestion-button">列出所有还没完成的 Deadline</button>
+        </div>
+      </div>
+      <div class="assistant-compose">
+        <label class="sr-only" for="assistantInput">输入复杂日程指令</label>
+        <input id="assistantInput" type="text" autocomplete="off" placeholder="输入复杂日程指令">
+        <button class="composer-submit" id="assistantSend" title="发送" aria-label="发送">
+          <i data-lucide="send"></i>
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <div class="overlay" id="settingsOverlay" aria-hidden="true">
+    <section class="dialog settings-dialog" role="dialog" aria-modal="true" aria-label="设置">
+      <header class="dialog-head">
+        <div class="dialog-title">
+          <i data-lucide="settings"></i>
+          <span>设置</span>
+        </div>
+        <button class="icon-btn small" data-close-overlay="settingsOverlay" title="关闭" aria-label="关闭设置">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="settings-content">
+        <section class="settings-section">
+          <h2>外观与窗口</h2>
+          <label class="settings-row">
+            <span>
+              <strong>主题</strong>
+              <small>选择浅色或深色界面</small>
+            </span>
+            <select id="themeSelect">
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </label>
+          <label class="settings-row">
+            <span>
+              <strong>窗口形态</strong>
+              <small>在完整工作区与紧凑窗口间切换</small>
+            </span>
+            <select id="windowModeSelect">
+              <option value="wide">完整工作区</option>
+              <option value="compact">紧凑窗口</option>
+            </select>
+          </label>
+          <label class="settings-row">
+            <span>
+              <strong>开机启动</strong>
+              <small>登录 Windows 后自动打开</small>
+            </span>
+            <input class="switch-input" id="autoLaunchToggle" type="checkbox">
+          </label>
+        </section>
+
+        <section class="settings-section">
+          <h2>AI 服务</h2>
+          <label class="settings-field">
+            <span>提供商</span>
+            <select id="aiProvider">
+              <option value="doubao">豆包</option>
+              <option value="ollama">Ollama</option>
+              <option value="openai">OpenAI / 兼容服务</option>
+            </select>
+          </label>
+          <div id="providerFields"></div>
+        </section>
+
+        <section class="settings-section about-section">
+          <h2>关于</h2>
+          <div class="about-row">
+            <span>HoYoCalendar</span>
+            <strong id="appVersion">V3.0.0</strong>
+          </div>
+          <button class="secondary-button" id="openLogsButton">
+            <i data-lucide="folder-open"></i>
+            <span>打开日志目录</span>
+          </button>
+        </section>
+      </div>
+      <footer class="dialog-footer">
+        <button class="primary-button" id="saveSettings">保存设置</button>
+      </footer>
+    </section>
+  </div>
+
+  <div class="mobile-detail-sheet" id="mobileDetailSheet" aria-hidden="true">
+    <section class="mobile-sheet-panel" role="dialog" aria-modal="true" aria-label="任务详情">
+      <div class="sheet-handle"></div>
+      <header class="details-head">
+        <strong>任务详情</strong>
+        <button class="icon-btn" id="closeMobileDetail" title="关闭" aria-label="关闭任务详情">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div id="mobileDetailsContent"></div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <span id="toastMessage"></span>
+    <button id="toastUndo">撤销</button>
+  </div>
+
+  <script src="node_modules/lucide/dist/umd/lucide.min.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

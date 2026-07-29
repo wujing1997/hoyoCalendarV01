@@ -1,608 +1,248 @@
+'use strict';
+
 const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
-const fs = require('fs');
 const http = require('http');
+const { EventStore } = require('./src/core/event-store');
+const { CommandRouter } = require('./src/core/command-router');
 
-// 引入 lunar-javascript 库
-let Lunar, Solar, HolidayUtil;
+let Lunar;
+let Solar;
+let HolidayUtil;
 try {
-  const lunarJS = require('lunar-javascript');
-  Lunar = lunarJS.Lunar;
-  Solar = lunarJS.Solar;
-  HolidayUtil = lunarJS.HolidayUtil;
-  console.log('✅ lunar-javascript 加载成功');
-} catch (err) {
-  console.warn('⚠️ lunar-javascript 加载失败，使用内置农历计算:', err.message);
+  const lunar = require('lunar-javascript');
+  Lunar = lunar.Lunar;
+  Solar = lunar.Solar;
+  HolidayUtil = lunar.HolidayUtil;
+} catch (error) {
+  console.warn('[Preload] Lunar calendar support unavailable:', error.message);
 }
 
-// 引入 AI 服务 — 通过 Flask 后端 HTTP API
+const dataDir = path.join(process.env.APPDATA || process.env.HOME, 'HoyoCalendar');
+const eventStore = new EventStore({ dataDir });
+const commandRouter = new CommandRouter(eventStore);
+
 let backendPort = 5000;
-const backendReady = (async () => {
-  try {
-    backendPort = await ipcRenderer.invoke('get-backend-port');
-  } catch (e) {
-    console.warn('⚠️ 获取后端端口失败，使用默认 5000');
-  }
-})();
+let backendStatus = 'starting';
+const backendPortReady = ipcRenderer.invoke('get-backend-port')
+  .then((port) => {
+    backendPort = Number(port) || 5000;
+    return backendPort;
+  })
+  .catch(() => backendPort);
 
-function backendUrl(path) {
-  return `http://127.0.0.1:${backendPort}${path}`;
-}
-
-// Node.js http 请求封装（preload 中 fetch 不可靠）
-function httpRequest(urlPath, method = 'GET', body = null, timeoutMs = 10000) {
+function httpRequest(urlPath, method = 'GET', body = null, timeoutMs = 45000) {
   return new Promise((resolve, reject) => {
-    const options = {
+    const payload = body === null ? null : JSON.stringify(body);
+    const request = http.request({
       hostname: '127.0.0.1',
       port: backendPort,
       path: urlPath,
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+      },
       timeout: timeoutMs,
-    };
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
+    }, (response) => {
+      let raw = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        raw += chunk;
+      });
+      response.on('end', () => {
+        let data = raw;
         try {
-          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data: JSON.parse(data) });
-        } catch (e) {
-          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data });
+          data = raw ? JSON.parse(raw) : {};
+        } catch (_) {
+          // Preserve a non-JSON error body for diagnostics.
         }
+        resolve({
+          ok: response.statusCode >= 200 && response.statusCode < 300,
+          status: response.statusCode,
+          data,
+        });
       });
     });
-    req.on('error', (err) => reject(err));
-    req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')); });
-    if (body) req.write(JSON.stringify(body));
-    req.end();
+
+    request.on('error', reject);
+    request.on('timeout', () => {
+      request.destroy(new Error('backend_timeout'));
+    });
+    if (payload) request.write(payload);
+    request.end();
   });
 }
 
-// 数据存储路径
-const userDataPath = process.env.APPDATA || process.env.HOME;
-const dataDir = path.join(userDataPath, 'HoyoCalendar');
-const eventsFile = path.join(dataDir, 'events.json');
-
-// 确保数据目录存在
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+function compactAgentSnapshot(events) {
+  return events.slice(-1000).map((event) => ({
+    id: event.id,
+    event: event.event,
+    date: event.date,
+    time: event.time,
+    location: event.location,
+    urgency: event.urgency,
+    note: event.note,
+    calendar: event.calendar,
+    isCompleted: event.isCompleted,
+    isRecurring: event.isRecurring,
+    recurringType: event.recurringType,
+    recurringDays: event.recurringDays,
+    startDate: event.startDate,
+    endDate: event.endDate,
+    completedDates: event.completedDates,
+    isDeadline: event.isDeadline,
+    deadlineDate: event.deadlineDate,
+    isDeadlineCompleted: event.isDeadlineCompleted,
+    deadlineCompletedDate: event.deadlineCompletedDate,
+    targetDurationMinutes: event.targetDurationMinutes,
+  }));
 }
 
-// 事件存储工具
-let _idCounter = 0;
-function generateUniqueId() {
-  _idCounter++;
-  return Date.now() * 1000 + _idCounter;
+function friendlyBackendError(error) {
+  const code = String(error?.code || error?.message || '');
+  if (/ECONNREFUSED|backend_timeout|ETIMEDOUT/.test(code)) {
+    return 'AI 服务仍在启动或暂时不可用，本地日程功能不受影响。';
+  }
+  return 'AI 服务请求失败，请检查设置后重试。';
 }
 
-const EventStore = {
-  // 读取所有事件
-  loadEvents() {
-    try {
-      if (fs.existsSync(eventsFile)) {
-        const data = fs.readFileSync(eventsFile, 'utf8');
-        return JSON.parse(data);
-      }
-      return [];
-    } catch (err) {
-      console.error('读取事件失败:', err);
-      return [];
-    }
-  },
-  
-  // 保存所有事件
-  saveEvents(events) {
-    try {
-      fs.writeFileSync(eventsFile, JSON.stringify(events, null, 2), 'utf8');
-      return true;
-    } catch (err) {
-      console.error('保存事件失败:', err);
-      return false;
-    }
-  },
-  
-  // 添加事件（支持长期任务）
-  addEvent(event) {
-    const events = this.loadEvents();
-    event.id = generateUniqueId();
-    event.createdAt = new Date().toISOString();
-    if (Number(event.targetDurationMinutes) > 0) {
-      event.targetDurationMinutes = Number(event.targetDurationMinutes);
-    } else {
-      delete event.targetDurationMinutes;
-    }
-    event.timerRecords = event.timerRecords || {};
+ipcRenderer.on('backend-ready', (_event, ready) => {
+  backendStatus = ready ? 'ready' : 'unavailable';
+});
 
-    if (event.isDeadline) {
-      const startDate = event.startDate || event.date;
-      const deadlineDate = event.deadlineDate || event.endDate || event.date;
-      event.date = startDate;
-      event.startDate = startDate;
-      event.deadlineDate = deadlineDate;
-      event.isDeadlineCompleted = !!event.isDeadlineCompleted;
-      if (!event.isDeadlineCompleted) {
-        delete event.completedAt;
-      }
-      delete event.isRecurring;
-      delete event.recurringType;
-      delete event.recurringDays;
-      delete event.completedDates;
-      events.push(event);
-      return this.saveEvents(events) ? event : null;
-    }
-    
-    // 如果是长期任务，保存原始任务并展开为子任务
-    if (event.isRecurring) {
-      event.recurringParentId = event.id; // 自身作为父任务
-      event.completedDates = []; // 记录已完成的日期
-      events.push(event);
-    } else {
-      events.push(event);
-    }
-    
-    return this.saveEvents(events) ? event : null;
-  },
-  
-  // 更新事件
-  updateEvent(id, updates) {
-    const events = this.loadEvents();
-    const index = events.findIndex(e => e.id === id);
-    if (index !== -1) {
-      if (Object.prototype.hasOwnProperty.call(updates, 'targetDurationMinutes')) {
-        if (Number(updates.targetDurationMinutes) > 0) {
-          updates.targetDurationMinutes = Number(updates.targetDurationMinutes);
-        } else {
-          delete updates.targetDurationMinutes;
-          delete events[index].targetDurationMinutes;
-        }
-      }
-      if (updates.isDeadline) {
-        updates.startDate = updates.startDate || updates.date || events[index].startDate || events[index].date;
-        updates.deadlineDate = updates.deadlineDate || updates.endDate || events[index].deadlineDate || events[index].endDate || updates.startDate;
-        updates.date = updates.startDate;
-        delete updates.isRecurring;
-        delete updates.recurringType;
-        delete updates.recurringDays;
-        delete updates.completedDates;
-      }
-      events[index] = { ...events[index], ...updates, updatedAt: new Date().toISOString() };
-      if (events[index].isDeadline) {
-        events[index].startDate = events[index].startDate || events[index].date;
-        events[index].deadlineDate = events[index].deadlineDate || events[index].endDate || events[index].date;
-        events[index].date = events[index].startDate;
-      }
-      return this.saveEvents(events) ? events[index] : null;
-    }
-    return null;
-  },
-  
-  // 删除事件
-  deleteEvent(id) {
-    const events = this.loadEvents();
-    const filtered = events.filter(e => e.id !== id);
-    const deletedCount = events.length - filtered.length;
-    if (deletedCount > 0) {
-      console.log(`🗑️ 删除了 ${deletedCount} 条日程 (id: ${id})`);
-      return this.saveEvents(filtered);
-    }
-    console.log(`⚠️ 未找到要删除的日程 (id: ${id})`);
-    return false;
-  },
-  
-  // 获取指定日期的事件（包括长期任务的当日实例）
-  getEventsByDate(dateStr) {
-    const events = this.loadEvents();
-    const result = [];
-    
-    events.forEach(e => {
-      if (e.isDeadline) {
-        const isDeadlineCompletedForDate = this.isDeadlineCompletedForDate(dateStr, e);
-        if (this.isDateInDeadlineRange(dateStr, e) || isDeadlineCompletedForDate) {
-          result.push({
-            ...e,
-            date: dateStr,
-            isDeadlineInstance: true,
-            deadlineParentId: e.id,
-            isCompleted: isDeadlineCompletedForDate,
-            daysRemaining: this.calculateDaysRemaining(dateStr, e.deadlineDate),
-          });
-        }
-      } else if (e.isRecurring) {
-        // 长期任务：检查该日期是否在范围内
-        if (this.isDateInRecurringRange(dateStr, e)) {
-          // 创建当日实例，保留父任务引用
-          const instance = {
-            ...e,
-            date: dateStr,
-            isRecurringInstance: true,
-            recurringParentId: e.id,
-            isCompleted: (e.completedDates || []).includes(dateStr),
-            // 计算进度信息
-            progress: this.calculateRecurringProgress(e, dateStr),
-          };
-          result.push(instance);
-        }
-      } else if (e.date === dateStr) {
-        result.push(e);
-      }
-    });
-    
-    return result;
-  },
-
-  parseLocalDate(dateStr) {
-    const [year, month, day] = String(dateStr || '').split('-').map(Number);
-    if (!year || !month || !day) return null;
-    return new Date(year, month - 1, day);
-  },
-
-  calculateDaysRemaining(dateStr, deadlineDateStr) {
-    const date = this.parseLocalDate(dateStr);
-    const deadlineDate = this.parseLocalDate(deadlineDateStr);
-    if (!date || !deadlineDate) return null;
-    return Math.max(0, Math.ceil((deadlineDate - date) / (1000 * 60 * 60 * 24)));
-  },
-
-  isDateInDeadlineRange(dateStr, event) {
-    if (event.isDeadlineCompleted) return false;
-    const date = this.parseLocalDate(dateStr);
-    const startDate = this.parseLocalDate(event.startDate || event.date);
-    const deadlineDate = this.parseLocalDate(event.deadlineDate || event.endDate);
-    if (!date || !startDate || !deadlineDate) return false;
-    return date >= startDate && date <= deadlineDate;
-  },
-
-  isDeadlineCompletedForDate(dateStr, event) {
-    if (!event.isDeadlineCompleted) return false;
-    const completedAtDate = event.completedAt ? this.formatDate(new Date(event.completedAt)) : '';
-    const completedDate = event.deadlineCompletedDate || completedAtDate;
-    return completedDate === dateStr && this.isDateWithinDeadlineBounds(dateStr, event);
-  },
-
-  isDateWithinDeadlineBounds(dateStr, event) {
-    const date = this.parseLocalDate(dateStr);
-    const startDate = this.parseLocalDate(event.startDate || event.date);
-    const deadlineDate = this.parseLocalDate(event.deadlineDate || event.endDate);
-    if (!date || !startDate || !deadlineDate) return false;
-    return date >= startDate && date <= deadlineDate;
-  },
-  
-  // 检查日期是否在长期任务范围内
-  isDateInRecurringRange(dateStr, event) {
-    const date = new Date(dateStr);
-    const startDate = new Date(event.startDate);
-    const endDate = new Date(event.endDate);
-    
-    if (date < startDate || date > endDate) {
-      return false;
-    }
-    
-    // 检查重复类型
-    if (event.recurringType === 'daily') {
-      return true;
-    } else if (event.recurringType === 'weekly' && event.recurringDays) {
-      const dayOfWeek = date.getDay();
-      return event.recurringDays.includes(dayOfWeek);
-    } else if (event.recurringType === 'monthly') {
-      // 每月同一天
-      const startDay = startDate.getDate();
-      return date.getDate() === startDay;
-    }
-    
-    return true;
-  },
-  
-  // 计算长期任务进度
-  calculateRecurringProgress(event, currentDateStr) {
-    const startDate = new Date(event.startDate);
-    const endDate = new Date(event.endDate);
-    const currentDate = new Date(currentDateStr);
-    const completedDates = event.completedDates || [];
-    
-    // 计算总天数（根据重复类型）
-    let totalDays = 0;
-    let passedDays = 0;
-    
-    if (event.recurringType === 'daily') {
-      totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
-      passedDays = Math.ceil((currentDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
-    } else if (event.recurringType === 'weekly' && event.recurringDays) {
-      // 计算周期内的特定天数
-      let d = new Date(startDate);
-      while (d <= endDate) {
-        if (event.recurringDays.includes(d.getDay())) {
-          totalDays++;
-          if (d <= currentDate) passedDays++;
-        }
-        d.setDate(d.getDate() + 1);
-      }
-    }
-    
-    return {
-      completed: completedDates.length,
-      total: totalDays,
-      passed: passedDays,
-      percentage: totalDays > 0 ? Math.round((completedDates.length / totalDays) * 100) : 0,
-    };
-  },
-  
-  // 标记长期任务某天完成/未完成
-  toggleRecurringDateComplete(parentId, dateStr) {
-    const events = this.loadEvents();
-    const index = events.findIndex(e => e.id === parentId);
-    
-    if (index !== -1 && events[index].isRecurring) {
-      const completedDates = events[index].completedDates || [];
-      const dateIndex = completedDates.indexOf(dateStr);
-      
-      if (dateIndex === -1) {
-        completedDates.push(dateStr);
-      } else {
-        completedDates.splice(dateIndex, 1);
-      }
-      
-      events[index].completedDates = completedDates;
-      events[index].updatedAt = new Date().toISOString();
-      
-      return this.saveEvents(events) ? events[index] : null;
-    }
-    return null;
-  },
-
-  completeDeadlineEvent(parentId, dateStr) {
-    const events = this.loadEvents();
-    const index = events.findIndex(e => String(e.id) === String(parentId));
-
-    if (index !== -1 && events[index].isDeadline) {
-      if (events[index].isDeadlineCompleted) {
-        events[index].isDeadlineCompleted = false;
-        delete events[index].deadlineCompletedDate;
-        delete events[index].completedAt;
-      } else {
-        events[index].isDeadlineCompleted = true;
-        events[index].deadlineCompletedDate = dateStr || this.formatDate(new Date());
-        events[index].completedAt = new Date().toISOString();
-      }
-      events[index].updatedAt = new Date().toISOString();
-      return this.saveEvents(events) ? events[index] : null;
-    }
-    return null;
-  },
-
-  // 获取指定任务某天的计时记录
-  getTimerRecord(eventId, dateStr) {
-    const events = this.loadEvents();
-    const event = events.find(e => String(e.id) === String(eventId));
-    if (!event) return null;
-    const records = event.timerRecords || {};
-    return records[dateStr] || { elapsedSeconds: 0, runningSince: null };
-  },
-
-  // 开始指定任务某天的计时
-  startTimer(eventId, dateStr) {
-    const events = this.loadEvents();
-    const index = events.findIndex(e => String(e.id) === String(eventId));
-    if (index === -1) return null;
-    const event = events[index];
-    event.timerRecords = event.timerRecords || {};
-    const record = event.timerRecords[dateStr] || { elapsedSeconds: 0, runningSince: null };
-    if (!record.runningSince) {
-      record.runningSince = new Date().toISOString();
-    }
-    record.elapsedSeconds = Number(record.elapsedSeconds) || 0;
-    event.timerRecords[dateStr] = record;
-    event.updatedAt = new Date().toISOString();
-    return this.saveEvents(events) ? event : null;
-  },
-
-  // 结束指定任务某天的计时，并累计本次用时
-  stopTimer(eventId, dateStr) {
-    const events = this.loadEvents();
-    const index = events.findIndex(e => String(e.id) === String(eventId));
-    if (index === -1) return null;
-    const event = events[index];
-    event.timerRecords = event.timerRecords || {};
-    const record = event.timerRecords[dateStr];
-    if (!record || !record.runningSince) return event;
-    const startedAt = new Date(record.runningSince).getTime();
-    const now = Date.now();
-    const deltaSeconds = Number.isFinite(startedAt) ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
-    record.elapsedSeconds = (Number(record.elapsedSeconds) || 0) + deltaSeconds;
-    record.runningSince = null;
-    event.timerRecords[dateStr] = record;
-    event.updatedAt = new Date().toISOString();
-    return this.saveEvents(events) ? event : null;
-  },
-  
-  // 获取所有长期任务
-  getRecurringEvents() {
-    const events = this.loadEvents();
-    return events.filter(e => e.isRecurring);
-  },
-  
-  // 获取日期范围内的事件
-  getEventsInRange(startDate, endDate) {
-    const events = this.loadEvents();
-    return events.filter(e => e.date >= startDate && e.date <= endDate);
-  },
-  
-  // 获取每日任务数量统计（包括长期任务）
-  getTaskCounts() {
-    const events = this.loadEvents();
-    const counts = {};
-    
-    events.forEach(e => {
-      if (e.isDeadline) {
-        if (e.isDeadlineCompleted) {
-          const completedAtDate = e.completedAt ? this.formatDate(new Date(e.completedAt)) : '';
-          const completedDate = e.deadlineCompletedDate || completedAtDate;
-          if (completedDate && this.isDateWithinDeadlineBounds(completedDate, e)) {
-            counts[completedDate] = (counts[completedDate] || 0) + 1;
-          }
-          return;
-        }
-        const startDate = this.parseLocalDate(e.startDate || e.date);
-        const deadlineDate = this.parseLocalDate(e.deadlineDate || e.endDate);
-        if (!startDate || !deadlineDate) return;
-        let d = new Date(startDate);
-
-        while (d <= deadlineDate) {
-          const dateStr = this.formatDate(d);
-          counts[dateStr] = (counts[dateStr] || 0) + 1;
-          d.setDate(d.getDate() + 1);
-        }
-      } else if (e.isRecurring) {
-        // 长期任务：统计范围内的每一天
-        const startDate = new Date(e.startDate);
-        const endDate = new Date(e.endDate);
-        let d = new Date(startDate);
-        
-        while (d <= endDate) {
-          const dateStr = this.formatDate(d);
-          if (this.isDateInRecurringRange(dateStr, e)) {
-            counts[dateStr] = (counts[dateStr] || 0) + 1;
-          }
-          d.setDate(d.getDate() + 1);
-        }
-      } else {
-        counts[e.date] = (counts[e.date] || 0) + 1;
-      }
-    });
-    
-    return counts;
-  },
-  
-  // 格式化日期为 YYYY-MM-DD
-  formatDate(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  },
-};
-
-// 暴露安全的 API 给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
-  // 窗口控制
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
+  maximizeWindow: () => ipcRenderer.send('window-toggle-maximize'),
   closeWindow: () => ipcRenderer.send('window-close'),
   togglePin: () => ipcRenderer.send('window-toggle-pin'),
-  resizeWindow: (height) => ipcRenderer.send('resize-window', height),
-
-  // 监听置顶状态变化
-  onPinStatusChanged: (callback) => {
-    ipcRenderer.on('pin-status-changed', (event, isPinned) => callback(isPinned));
+  setWindowMode: (mode) => ipcRenderer.send('window-set-mode', mode),
+  getWindowState: () => ipcRenderer.invoke('get-window-state'),
+  onWindowStateChanged: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('window-state-changed', listener);
+    return () => ipcRenderer.removeListener('window-state-changed', listener);
   },
-
-  // 监听后端就绪
   onBackendReady: (callback) => {
-    ipcRenderer.on('backend-ready', (event, ready) => callback(ready));
+    const listener = (_event, ready) => callback(ready);
+    ipcRenderer.on('backend-ready', listener);
+    return () => ipcRenderer.removeListener('backend-ready', listener);
   },
-
-  // 开机自启动
   getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
-  setAutoLaunch: (enable) => ipcRenderer.invoke('set-auto-launch', enable),
+  setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', Boolean(enabled)),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  openLogsFolder: () => ipcRenderer.invoke('open-logs-folder'),
 });
 
-// 暴露 AI 服务 API（通过 Flask 后端）
+contextBridge.exposeInMainWorld('eventAPI', {
+  loadEvents: () => eventStore.loadEvents(),
+  addEvent: (event) => eventStore.addEvent(event),
+  updateEvent: (id, updates) => eventStore.updateEvent(id, updates),
+  deleteEvent: (id) => eventStore.deleteEvent(id),
+  getEvent: (id) => eventStore.getEvent(id),
+  getEventsByDate: (date, options) => eventStore.getEventsByDate(date, options),
+  getEventsBetween: (startDate, endDate) => eventStore.getEventsBetween(startDate, endDate),
+  getTaskCounts: (startDate, endDate) => eventStore.getTaskCounts(startDate, endDate),
+  toggleComplete: (id, date) => eventStore.toggleComplete(id, date),
+  toggleRecurringDateComplete: (id, date) => eventStore.toggleComplete(id, date),
+  completeDeadlineEvent: (id, date) => eventStore.toggleComplete(id, date),
+  getTimerRecord: (id, date) => eventStore.getTimerRecord(id, date),
+  startTimer: (id, date) => eventStore.updateTimer(id, date, true),
+  stopTimer: (id, date) => eventStore.updateTimer(id, date, false),
+  applyActions: (actions) => eventStore.applyActions(actions),
+});
+
+contextBridge.exposeInMainWorld('commandAPI', {
+  preview: (text, contextDate) => commandRouter.preview(text, contextDate),
+  execute: (text, contextDate) => commandRouter.execute(text, contextDate),
+});
+
 contextBridge.exposeInMainWorld('aiAPI', {
-  isAvailable: () => true,
-
-  parseEvent: async (text) => {
+  status: async () => {
     try {
-      await backendReady;
-      const resp = await httpRequest('/api/parse', 'POST', { text }, 120000);
-      if (!resp.ok) throw new Error(JSON.stringify(resp.data));
-      return resp.data;
-    } catch (err) {
-      console.error('❌ AI 解析失败:', err.message);
-      return null;
+      await backendPortReady;
+      const response = await httpRequest('/api/health', 'GET', null, 3000);
+      backendStatus = response.ok ? 'ready' : 'unavailable';
+      return {
+        status: backendStatus,
+        ...(response.data && typeof response.data === 'object' ? response.data : {}),
+      };
+    } catch (_) {
+      backendStatus = 'unavailable';
+      return { status: backendStatus, configured: false };
     }
   },
 
-  parseImage: async (base64Data) => {
+  chat: async (message, sessionId = 'main') => {
     try {
-      await backendReady;
-      const resp = await httpRequest('/api/parse-image', 'POST', { image: base64Data }, 120000);
-      if (!resp.ok) throw new Error(JSON.stringify(resp.data));
-      return resp.data;
-    } catch (err) {
-      console.error('❌ AI 图片解析失败:', err.message);
-      return null;
+      await backendPortReady;
+      const response = await httpRequest('/api/agent/chat', 'POST', {
+        message,
+        session_id: sessionId,
+        today: eventStore.validDate(new Date()) || undefined,
+        events: compactAgentSnapshot(eventStore.loadEvents()),
+      }, 90000);
+      if (!response.ok) {
+        const detail = response.data?.message || response.data?.error;
+        throw new Error(detail || `backend_${response.status}`);
+      }
+
+      const actions = Array.isArray(response.data.actions) ? response.data.actions : [];
+      const actionResults = actions.length ? eventStore.applyActions(actions) : [];
+      const successfulActions = actionResults.filter((result) => result.success);
+      return {
+        ...response.data,
+        events_changed: successfulActions.length > 0,
+        action_results: actionResults,
+        created_count: successfulActions.filter((result) => result.type === 'create').length,
+        deleted_count: successfulActions.filter((result) => result.type === 'delete').length,
+      };
+    } catch (error) {
+      console.error('[Preload] Agent request failed:', error.message);
+      return {
+        message: friendlyBackendError(error),
+        events_changed: false,
+        error_code: 'agent_unavailable',
+      };
     }
   },
 
-  chat: async (message, sessionId) => {
+  resetChat: async (sessionId = 'main') => {
     try {
-      await backendReady;
-      const resp = await httpRequest('/api/chat', 'POST', { message, session_id: sessionId || 'default' }, 180000);
-      return resp.data;
-    } catch (err) {
-      console.error('❌ AI 对话失败:', err.message);
-      return { message: `出错了：${err.message}`, events_changed: false };
+      await backendPortReady;
+      await httpRequest('/api/agent/reset', 'POST', { session_id: sessionId }, 5000);
+      return true;
+    } catch (_) {
+      return false;
     }
-  },
-
-  resetChat: async (sessionId) => {
-    try {
-      await backendReady;
-      await httpRequest('/api/chat/reset', 'POST', { session_id: sessionId || 'default' });
-    } catch (e) { /* ignore */ }
   },
 });
 
-// 暴露配置 API（通过 Flask 后端）
 contextBridge.exposeInMainWorld('configAPI', {
   load: async () => {
     try {
-      await backendReady;
-      const resp = await httpRequest('/api/config', 'GET');
-      return resp.data;
-    } catch (e) {
-      console.error('加载配置失败:', e);
+      await backendPortReady;
+      const response = await httpRequest('/api/config', 'GET', null, 5000);
+      return response.ok ? response.data : {};
+    } catch (_) {
       return {};
     }
   },
   save: async (config) => {
     try {
-      await backendReady;
-      const resp = await httpRequest('/api/config', 'PUT', config);
-      return resp.data;
-    } catch (e) {
-      console.error('保存配置失败:', e);
+      await backendPortReady;
+      const response = await httpRequest('/api/config', 'PUT', config, 5000);
+      return response.ok ? response.data : { success: false };
+    } catch (_) {
       return { success: false };
     }
   },
 });
 
-// 暴露事件存储 API
-contextBridge.exposeInMainWorld('eventAPI', {
-  loadEvents: () => EventStore.loadEvents(),
-  saveEvents: (events) => EventStore.saveEvents(events),
-  addEvent: (event) => EventStore.addEvent(event),
-  updateEvent: (id, updates) => EventStore.updateEvent(id, updates),
-  deleteEvent: (id) => EventStore.deleteEvent(id),
-  getEventsByDate: (dateStr) => EventStore.getEventsByDate(dateStr),
-  getEventsInRange: (startDate, endDate) => EventStore.getEventsInRange(startDate, endDate),
-  getTaskCounts: () => EventStore.getTaskCounts(),
-  // 长期任务相关
-  toggleRecurringDateComplete: (parentId, dateStr) => EventStore.toggleRecurringDateComplete(parentId, dateStr),
-  getRecurringEvents: () => EventStore.getRecurringEvents(),
-  completeDeadlineEvent: (parentId, dateStr) => EventStore.completeDeadlineEvent(parentId, dateStr),
-  // 计时相关
-  getTimerRecord: (eventId, dateStr) => EventStore.getTimerRecord(eventId, dateStr),
-  startTimer: (eventId, dateStr) => EventStore.startTimer(eventId, dateStr),
-  stopTimer: (eventId, dateStr) => EventStore.stopTimer(eventId, dateStr),
-});
-
-// 暴露农历 API
 contextBridge.exposeInMainWorld('lunarAPI', {
-  // 检查库是否可用
-  isAvailable: () => !!Lunar,
-  
-  // 从公历获取农历
+  isAvailable: () => Boolean(Lunar),
   fromSolar: (year, month, day) => {
-    if (!Lunar) return null;
+    if (!Solar) return null;
     try {
       const solar = Solar.fromYmd(year, month, day);
       const lunar = solar.getLunar();
@@ -610,35 +250,27 @@ contextBridge.exposeInMainWorld('lunarAPI', {
         year: lunar.getYear(),
         month: lunar.getMonth(),
         day: lunar.getDay(),
-        monthStr: lunar.getMonthInChinese() + '月',
+        monthStr: `${lunar.getMonthInChinese()}月`,
         dayStr: lunar.getDayInChinese(),
         isLeapMonth: lunar.getMonth() < 0,
         yearGanZhi: lunar.getYearInGanZhi(),
-        monthGanZhi: lunar.getMonthInGanZhi(),
-        dayGanZhi: lunar.getDayInGanZhi(),
         shengXiao: lunar.getYearShengXiao(),
         jieQi: lunar.getJieQi() || null,
         festivals: lunar.getFestivals() || [],
         otherFestivals: lunar.getOtherFestivals() || [],
       };
-    } catch (err) {
-      console.error('农历转换错误:', err);
+    } catch (_) {
       return null;
     }
   },
-  
-  // 获取公历节日
   getSolarFestivals: (year, month, day) => {
     if (!Solar) return [];
     try {
-      const solar = Solar.fromYmd(year, month, day);
-      return solar.getFestivals() || [];
-    } catch (err) {
+      return Solar.fromYmd(year, month, day).getFestivals() || [];
+    } catch (_) {
       return [];
     }
   },
-  
-  // 获取节假日信息（调休/放假）
   getHoliday: (year, month, day) => {
     if (!HolidayUtil) return null;
     try {
@@ -649,11 +281,8 @@ contextBridge.exposeInMainWorld('lunarAPI', {
         isWork: holiday.isWork(),
         target: holiday.getTarget(),
       };
-    } catch (err) {
+    } catch (_) {
       return null;
     }
   },
 });
-
-// 控制台提示
-console.log('🚀 HoyoCalendar Preload Script Loaded');

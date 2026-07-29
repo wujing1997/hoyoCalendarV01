@@ -1,27 +1,29 @@
 {
   "name": "hoyocalendar",
-  "version": "2.3.0",
-  "description": "二次元风格玻璃拟态桌面悬浮日历应用",
+  "version": "3.0.0",
+  "description": "面向效率工作的本地优先桌面日程与任务管理工具",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build:backend": "python -m PyInstaller --noconfirm backend_server.spec",
     "build:electron": "electron-builder --win",
     "build": "npm run build:backend && npm run build:electron",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test:core": "node --test tests/*.test.js",
+    "test:backend": "python -m unittest discover -s backend/tests -p \"test_*.py\"",
+    "test": "npm run test:core && npm run test:backend"
   },
   "keywords": [
     "electron",
     "calendar",
-    "glassmorphism",
-    "hoyo"
+    "productivity",
+    "deadline"
   ],
   "author": "HoyoCalendar Team",
   "license": "ISC",
   "type": "commonjs",
   "build": {
     "appId": "com.hoyocalendar.app",
-    "productName": "HoYoCalendarV2.3",
+    "productName": "HoYoCalendarV3.0",
     "directories": {
       "output": "dist"
     },
@@ -29,9 +31,9 @@
       "main.js",
       "preload.js",
       "renderer.js",
-      "ai-service.js",
       "index.html",
       "styles.css",
+      "src/**/*",
       "package.json",
       "node_modules/**/*"
     ],
@@ -39,14 +41,18 @@
       {
         "from": "dist/backend_server",
         "to": "backend_server",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -54,7 +60,7 @@
       "oneClick": true,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
-      "artifactName": "HoYoCalendarV2.3-setup.exe",
+      "artifactName": "HoYoCalendarV3.0-setup.exe",
       "shortcutName": "HoYoCalendar"
     }
   },
@@ -63,6 +69,7 @@
     "electron-builder": "^26.8.1"
   },
   "dependencies": {
+    "lucide": "^1.27.0",
     "lunar-javascript": "^1.6.12"
   }
 }

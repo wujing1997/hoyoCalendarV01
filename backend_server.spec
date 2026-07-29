@@ -4,20 +4,30 @@ from PyInstaller.utils.hooks import copy_metadata
 
 metadata = (
     copy_metadata('flask')
-    + copy_metadata('flask-cors')
     + copy_metadata('werkzeug')
+    + copy_metadata('openai')
 )
 
 a = Analysis(
     ['backend\\app.py'],
-    pathex=[],
+    pathex=['backend'],
     binaries=[],
     datas=metadata,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'IPython',
+        'PIL',
+        'lxml',
+        'matplotlib',
+        'numpy',
+        'pandas',
+        'pyarrow',
+        'pytest',
+        'scipy',
+    ],
     noarchive=False,
     optimize=0,
 )

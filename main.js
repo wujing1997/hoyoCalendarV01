@@ -1,366 +1,389 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
-const { spawn, execSync } = require('child_process');
-const path = require('path');
+'use strict';
+
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+} = require('electron');
+const { spawn, spawnSync, execFileSync } = require('child_process');
 const fs = require('fs');
-const net = require('net');
 const http = require('http');
+const net = require('net');
+const path = require('path');
 
-// ==================== 文件日志（打包后无控制台，写入日志文件） ====================
-const logDir = path.join(app.getPath('userData'), 'logs');
-try { fs.mkdirSync(logDir, { recursive: true }); } catch (e) {}
-const logFile = path.join(logDir, `main-${new Date().toISOString().slice(0,10)}.log`);
-function log(...args) {
-  const line = `[${new Date().toISOString()}] ${args.map(a => (typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a))).join(' ')}\n`;
-  try { fs.appendFileSync(logFile, line); } catch (e) {}
-  console.log(...args);
-}
-function logError(...args) {
-  const line = `[${new Date().toISOString()}] [ERROR] ${args.map(a => (a instanceof Error ? a.stack || a.message : (typeof a === 'object' ? JSON.stringify(a) : String(a)))).join(' ')}\n`;
-  try { fs.appendFileSync(logFile, line); } catch (e) {}
-  console.error(...args);
-}
-log('========== HoyoCalendar 启动 ==========');
-log('版本:', app.getVersion(), '打包:', app.isPackaged, '路径:', app.getAppPath());
-log('日志文件:', logFile);
-
-// ==================== 单实例锁 ====================
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  log('已有实例运行，退出');
+const allowMultipleInstances = process.env.HOYO_ALLOW_MULTIPLE_INSTANCES === '1';
+const gotLock = allowMultipleInstances || app.requestSingleInstanceLock();
+if (!gotLock) {
   app.quit();
   return;
 }
 
-// ==================== 全局异常捕获（防止闪退） ====================
-process.on('uncaughtException', (err) => {
-  logError('[Fatal] 未捕获异常:', err);
-});
-process.on('unhandledRejection', (reason) => {
-  logError('[Fatal] 未处理的 Promise 拒绝:', reason);
-});
+const logDir = path.join(app.getPath('userData'), 'logs');
+const windowStateFile = path.join(app.getPath('userData'), 'window-state.json');
+fs.mkdirSync(logDir, { recursive: true });
+const logFile = path.join(logDir, `main-${new Date().toISOString().slice(0, 10)}.log`);
 
-// 保持窗口对象的全局引用，避免被垃圾回收
+function serializeLogValue(value) {
+  if (value instanceof Error) return value.stack || value.message;
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch (_) {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function log(...values) {
+  const line = `[${new Date().toISOString()}] ${values.map(serializeLogValue).join(' ')}\n`;
+  try {
+    fs.appendFileSync(logFile, line);
+  } catch (_) {
+    // Logging must never interrupt the app.
+  }
+  console.log(...values);
+}
+
+function logError(...values) {
+  log('[ERROR]', ...values);
+}
+
+process.on('uncaughtException', (error) => logError('uncaughtException', error));
+process.on('unhandledRejection', (reason) => logError('unhandledRejection', reason));
+
 let mainWindow = null;
 let backendProcess = null;
 let backendPort = 5000;
+let backendStopping = false;
+let persistTimer = null;
 
-// 聚焦已有窗口（第二个实例启动时）
-app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+function loadWindowState() {
+  try {
+    const state = JSON.parse(fs.readFileSync(windowStateFile, 'utf8'));
+    const width = Math.max(360, Number(state.width) || 1180);
+    const height = Math.max(560, Number(state.height) || 760);
+    return {
+      width,
+      height,
+      x: Number.isFinite(state.x) ? state.x : undefined,
+      y: Number.isFinite(state.y) ? state.y : undefined,
+      isPinned: Boolean(state.isPinned),
+      mode: state.mode === 'compact' ? 'compact' : 'wide',
+    };
+  } catch (_) {
+    return {
+      width: 1180,
+      height: 760,
+      x: undefined,
+      y: undefined,
+      isPinned: false,
+      mode: 'wide',
+    };
   }
-});
+}
 
-// 查找可用端口
+function saveWindowStateNow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const bounds = mainWindow.getBounds();
+  const state = {
+    ...bounds,
+    isPinned: mainWindow.isAlwaysOnTop(),
+    mode: bounds.width <= 720 ? 'compact' : 'wide',
+  };
+  try {
+    fs.writeFileSync(windowStateFile, JSON.stringify(state, null, 2), 'utf8');
+  } catch (error) {
+    logError('Failed to persist window state', error);
+  }
+}
+
+function persistWindowState() {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(saveWindowStateNow, 250);
+}
+
+function currentWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { isPinned: false, isMaximized: false, mode: 'wide' };
+  }
+  return {
+    isPinned: mainWindow.isAlwaysOnTop(),
+    isMaximized: mainWindow.isMaximized(),
+    mode: mainWindow.getBounds().width <= 720 ? 'compact' : 'wide',
+  };
+}
+
+function publishWindowState() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('window-state-changed', currentWindowState());
+  }
+}
+
 function findAvailablePort(startPort) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const server = net.createServer();
+    server.unref();
+    server.on('error', () => resolve(findAvailablePort(startPort + 1)));
     server.listen(startPort, '127.0.0.1', () => {
       const port = server.address().port;
       server.close(() => resolve(port));
     });
-    server.on('error', () => {
-      resolve(findAvailablePort(startPort + 1));
-    });
   });
 }
 
-// 启动 Python Flask 后端（只启动进程，不等待就绪）
-async function startBackend() {
-  backendPort = await findAvailablePort(5000);
-  log('[Backend] 使用端口:', backendPort);
-
-  // 判断是否为打包后的生产环境
-  if (app.isPackaged) {
-    const exePath = path.join(process.resourcesPath, 'backend_server', 'backend_server.exe');
-    log('[Backend] 使用打包后端:', exePath);
-    // 检查文件是否存在
-    if (!fs.existsSync(exePath)) {
-      logError('[Backend] backend_server.exe 不存在:', exePath);
-      return;
-    }
-    backendProcess = spawn(exePath, [String(backendPort)], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+function resolvePythonCommand() {
+  const candidates = [
+    { command: 'python', args: [] },
+    { command: 'py', args: ['-3'] },
+    { command: 'python3', args: [] },
+  ];
+  for (const candidate of candidates) {
+    const result = spawnSync(candidate.command, [...candidate.args, '--version'], {
       windowsHide: true,
+      encoding: 'utf8',
     });
+    if (!result.error && result.status === 0) return candidate;
+  }
+  return null;
+}
+
+async function startBackend() {
+  backendStopping = false;
+  backendPort = await findAvailablePort(5000);
+  let executable;
+  let args;
+
+  if (app.isPackaged) {
+    executable = path.join(process.resourcesPath, 'backend_server', 'backend_server.exe');
+    args = [String(backendPort)];
+    if (!fs.existsSync(executable)) {
+      logError('Packaged backend not found', executable);
+      return false;
+    }
   } else {
-    const pythonScript = path.join(__dirname, 'backend', 'app.py');
-    const pythonCommands = ['python', 'python3', 'py'];
-    let launched = false;
-    for (const cmd of pythonCommands) {
-      try {
-        backendProcess = spawn(cmd, [pythonScript, String(backendPort)], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env },
-        });
-        launched = true;
-        break;
-      } catch (e) {
-        continue;
-      }
+    const python = resolvePythonCommand();
+    if (!python) {
+      logError('Python runtime not found');
+      return false;
     }
-    if (!launched) {
-      console.error('无法启动 Python 后端');
-      return;
-    }
+    executable = python.command;
+    args = [
+      ...python.args,
+      path.join(__dirname, 'backend', 'app.py'),
+      String(backendPort),
+    ];
   }
 
-  backendProcess.stdout.on('data', (data) => {
-    log('[Backend]', data.toString().trim());
+  log('Starting backend', executable, `port=${backendPort}`);
+  backendProcess = spawn(executable, args, {
+    cwd: app.isPackaged ? process.resourcesPath : __dirname,
+    env: {
+      ...process.env,
+      PYTHONIOENCODING: 'utf-8',
+      HOYO_CALENDAR_VERSION: app.getVersion(),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
-  backendProcess.stderr.on('data', (data) => {
-    logError('[Backend ERR]', data.toString().trim());
-  });
-  backendProcess.on('error', (err) => {
-    logError('[Backend] 启动失败:', err.message);
-  });
-  backendProcess.on('exit', (code) => {
-    log('[Backend] 进程退出, code:', code);
-    const wasStopping = backendProcess === null; // stopBackend 会先置 null
-    backendProcess = null;
-    // 非主动关闭时自动重启后端
-    if (!wasStopping && !app.isQuitting) {
-      log('[Backend] 意外退出，3秒后自动重启...');
-      setTimeout(() => {
-        if (!app.isQuitting) {
-          startBackend().then(() => waitForBackend());
-        }
-      }, 3000);
+
+  const child = backendProcess;
+  child.stdout.on('data', (data) => log('[Backend]', data.toString().trim()));
+  child.stderr.on('data', (data) => {
+    const message = data.toString().trim();
+    if (/\b(ERROR|Traceback|Exception)\b/i.test(message)) {
+      logError('[Backend]', message);
+    } else {
+      log('[Backend]', message);
     }
   });
+  child.on('error', (error) => logError('Backend process error', error));
+  child.on('exit', (code) => {
+    log('Backend exited', `code=${code}`);
+    if (backendProcess === child) backendProcess = null;
+    if (!backendStopping && !app.isQuitting) {
+      setTimeout(async () => {
+        if (app.isQuitting || backendProcess) return;
+        await startBackend();
+        const ready = await waitForBackend();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('backend-ready', ready);
+        }
+      }, 2000);
+    }
+  });
+  return true;
 }
 
-// 等待后端就绪（轮询 /api/health）
 function waitForBackend(timeoutMs = 15000) {
   return new Promise((resolve) => {
-    const start = Date.now();
+    const startedAt = Date.now();
     const check = () => {
-      const req = http.get(`http://127.0.0.1:${backendPort}/api/health`, (res) => {
-        if (res.statusCode === 200) {
-          log('[Backend] 后端就绪');
-          resolve(true);
-        } else {
-          retry();
-        }
+      const request = http.get(`http://127.0.0.1:${backendPort}/api/health`, (response) => {
+        response.resume();
+        if (response.statusCode === 200) resolve(true);
+        else retry();
       });
-      req.on('error', retry);
-      req.setTimeout(1000, () => { req.destroy(); retry(); });
+      request.setTimeout(800, () => request.destroy());
+      request.on('error', retry);
     };
     const retry = () => {
-      if (Date.now() - start > timeoutMs) {
-        logError('[Backend] 等待超时，继续启动窗口');
-        resolve(false);
-      } else {
-        setTimeout(check, 300);
-      }
+      if (Date.now() - startedAt >= timeoutMs) resolve(false);
+      else setTimeout(check, 250);
     };
     check();
   });
 }
 
-// 关闭后端（Windows 上杀进程树）
 function stopBackend() {
-  if (backendProcess) {
-    const pid = backendProcess.pid;
-    backendProcess = null;
-    if (process.platform === 'win32' && pid) {
-      try {
-        execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' });
-      } catch (e) { /* 进程可能已退出 */ }
-    } else if (pid) {
-      try { process.kill(pid); } catch (e) { /* ignore */ }
+  backendStopping = true;
+  const child = backendProcess;
+  backendProcess = null;
+  if (!child?.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } else {
+      child.kill('SIGTERM');
     }
+  } catch (_) {
+    // The process may already have exited.
   }
 }
 
 function createWindow() {
-  // 创建无边框透明窗口
+  const saved = loadWindowState();
   mainWindow = new BrowserWindow({
-    width: 360,
-    height: 600,
+    width: saved.width,
+    height: saved.height,
+    x: saved.x,
+    y: saved.y,
     minWidth: 360,
-    maxWidth: 360,
-    maxHeight: 780,
-    frame: false,           // 无边框
-    transparent: true,      // 透明背景
-    alwaysOnTop: true,      // 始终置顶
-    resizable: true,        // 高度可调整
-    skipTaskbar: false,     // 显示在任务栏
-    hasShadow: true,        // 启用窗口阴影
-    roundedCorners: true,   // 圆角窗口 (Windows 11)
-    backgroundColor: '#00000000', // 完全透明背景
+    minHeight: 560,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#eef1f5',
+    alwaysOnTop: saved.isPinned,
+    resizable: true,
+    show: false,
+    roundedCorners: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
-    }
+      sandbox: false,
+    },
   });
 
-  // 设置窗口圆角（Windows 11+）
-  if (process.platform === 'win32') {
-    mainWindow.once('ready-to-show', () => {
-      // 确保窗口背景完全透明
-      mainWindow.setBackgroundColor('#00000000');
-    });
-  }
-
-  // 加载主页面
+  mainWindow.setMenu(null);
   mainWindow.loadFile('index.html');
-
-  // 捕获渲染进程日志到文件
-  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    const prefix = ['[Renderer VERBOSE]', '[Renderer INFO]', '[Renderer WARN]', '[Renderer ERROR]'][level] || '[Renderer]';
-    if (level >= 2) {
-      logError(prefix, message);
-    } else {
-      log(prefix, message);
-    }
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    publishWindowState();
   });
 
-  // 页面加载失败记录
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-    logError('[Window] 页面加载失败:', errorCode, errorDescription);
+  mainWindow.on('resize', () => {
+    persistWindowState();
+    publishWindowState();
   });
-
-  // 开发模式下打开 DevTools
-  if (!app.isPackaged) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
-
-  // 渲染进程崩溃时自动恢复
-  mainWindow.webContents.on('render-process-gone', (event, details) => {
-    logError('[Window] 渲染进程崩溃:', details.reason, 'exitCode:', details.exitCode);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.loadFile('index.html');
-        }
-      }, 1000);
-    }
-  });
-
-  // 窗口无响应 / 恢复响应
-  mainWindow.on('unresponsive', () => logError('[Window] 窗口无响应'));
-  mainWindow.on('responsive', () => log('[Window] 窗口恢复响应'));
-
-  // 窗口关闭时清除引用
-  mainWindow.on('close', (event) => {
-    log('[Window] close 事件触发 (isQuitting:', !!app.isQuitting, ')');
+  mainWindow.on('move', persistWindowState);
+  mainWindow.on('maximize', publishWindowState);
+  mainWindow.on('unmaximize', publishWindowState);
+  mainWindow.on('always-on-top-changed', () => {
+    persistWindowState();
+    publishWindowState();
   });
   mainWindow.on('closed', () => {
-    log('[Window] closed 事件触发，窗口已销毁');
     mainWindow = null;
   });
+  mainWindow.on('unresponsive', () => logError('Renderer became unresponsive'));
+
+  mainWindow.webContents.on('console-message', (_event, detailsOrLevel, legacyMessage) => {
+    const isStructured = detailsOrLevel && typeof detailsOrLevel === 'object';
+    const level = isStructured ? detailsOrLevel.level : Number(detailsOrLevel);
+    const message = isStructured
+      ? detailsOrLevel.message
+      : String(legacyMessage || '');
+    if (level === 'error' || Number(level) >= 3) logError('[Renderer]', message);
+    else log('[Renderer]', message);
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logError('Renderer process gone', details);
+  });
+  mainWindow.webContents.on('did-fail-load', (_event, code, description) => {
+    logError('Page failed to load', code, description);
+  });
+
+  if (!app.isPackaged && process.env.HOYO_DEVTOOLS === '1') {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 }
 
-// Electron 准备就绪后创建窗口
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+
 app.whenReady().then(async () => {
-  log('[App] app.whenReady resolved');
-
-  // 先启动后端进程（不阻塞）
+  log('HoYoCalendar starting', `version=${app.getVersion()}`, `packaged=${app.isPackaged}`);
   await startBackend();
-
-  // 立即创建窗口，不等后端就绪
   createWindow();
-  log('[App] 窗口已创建');
-
-  // 后台等待后端就绪，就绪后通知渲染进程
-  waitForBackend().then((ready) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('backend-ready', ready);
-    }
-  });
-
-  // macOS 特殊处理：点击 dock 图标重新创建窗口
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
-});
-
-// 所有窗口关闭时退出应用（macOS 除外）
-app.on('window-all-closed', () => {
-  log('[App] window-all-closed 触发');
-  if (process.platform !== 'darwin') {
-    app.quit();
+  const ready = await waitForBackend();
+  log('Backend readiness', ready);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('backend-ready', ready);
   }
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
 });
 
-// GPU 进程信息
-app.on('child-process-gone', (event, details) => {
-  logError('[App] child-process-gone:', details.type, details.reason, 'exitCode:', details.exitCode);
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
 });
-
-// 主进程心跳（每30秒记录一次，便于判断何时退出）
-let heartbeatCount = 0;
-const heartbeat = setInterval(() => {
-  heartbeatCount++;
-  log('[Heartbeat]', heartbeatCount, '- 窗口存在:', !!mainWindow, '后端存在:', !!backendProcess);
-}, 30000);
 
 app.on('before-quit', () => {
-  log('[App] before-quit');
   app.isQuitting = true;
-  clearInterval(heartbeat);
-});
-
-app.on('will-quit', () => {
-  log('[App] will-quit');
-  app.isQuitting = true;
+  clearTimeout(persistTimer);
+  saveWindowStateNow();
   stopBackend();
 });
 
-// IPC: 获取后端端口
 ipcMain.handle('get-backend-port', () => backendPort);
-
-// ==================== IPC 通信处理 ====================
-
-// 窗口控制：最小化
-ipcMain.on('window-minimize', () => {
-  if (mainWindow) {
-    mainWindow.minimize();
-  }
+ipcMain.handle('get-window-state', () => currentWindowState());
+ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('open-logs-folder', async () => shell.openPath(logDir));
+ipcMain.handle('get-auto-launch', () => app.getLoginItemSettings().openAtLogin);
+ipcMain.handle('set-auto-launch', (_event, enabled) => {
+  app.setLoginItemSettings({ openAtLogin: Boolean(enabled), path: process.execPath });
+  return app.getLoginItemSettings().openAtLogin;
 });
 
-// 窗口控制：关闭
-ipcMain.on('window-close', () => {
-  if (mainWindow) {
-    mainWindow.close();
-  }
+ipcMain.on('window-minimize', () => mainWindow?.minimize());
+ipcMain.on('window-close', () => mainWindow?.close());
+ipcMain.on('window-toggle-maximize', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
 });
-
-// 窗口控制：切换置顶状态
 ipcMain.on('window-toggle-pin', () => {
-  if (mainWindow) {
-    const isPinned = mainWindow.isAlwaysOnTop();
-    mainWindow.setAlwaysOnTop(!isPinned);
-    mainWindow.webContents.send('pin-status-changed', !isPinned);
+  if (!mainWindow) return;
+  mainWindow.setAlwaysOnTop(!mainWindow.isAlwaysOnTop());
+});
+ipcMain.on('window-set-mode', (_event, mode) => {
+  if (!mainWindow) return;
+  if (mode === 'compact') {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    mainWindow.setSize(430, 720, true);
+  } else {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    mainWindow.setSize(1180, 760, true);
   }
-});
-
-// 调整窗口高度
-ipcMain.on('resize-window', (event, height) => {
-  if (mainWindow) {
-    const [width] = mainWindow.getSize();
-    const newHeight = Math.min(Math.max(height, 400), 780);
-    mainWindow.setSize(width, newHeight);
-  }
-});
-
-// ==================== 开机自启动 ====================
-
-ipcMain.handle('get-auto-launch', () => {
-  return app.getLoginItemSettings().openAtLogin;
-});
-
-ipcMain.handle('set-auto-launch', (event, enable) => {
-  app.setLoginItemSettings({
-    openAtLogin: enable,
-    path: process.execPath,
-  });
-  return app.getLoginItemSettings().openAtLogin;
 });
