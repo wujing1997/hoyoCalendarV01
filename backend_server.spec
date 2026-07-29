@@ -1,11 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import copy_metadata
+
+metadata = (
+    copy_metadata('flask')
+    + copy_metadata('flask-cors')
+    + copy_metadata('werkzeug')
+)
 
 a = Analysis(
     ['backend\\app.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=metadata,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

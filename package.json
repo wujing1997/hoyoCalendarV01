@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build:backend": "python -m PyInstaller --noconfirm --onedir --console --name backend_server backend/app.py",
+    "build:backend": "python -m PyInstaller --noconfirm backend_server.spec",
     "build:electron": "electron-builder --win",
     "build": "npm run build:backend && npm run build:electron",
     "test": "echo \"Error: no test specified\" && exit 1"
