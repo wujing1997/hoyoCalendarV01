@@ -640,7 +640,8 @@ select {
 }
 
 .task-item.collapsed,
-.task-item.recurring.completed {
+.task-item.recurring.completed,
+.task-item.deadline.completed {
   align-items: center;
   padding: 8px 11px;
   opacity: 0.72;
@@ -648,7 +649,8 @@ select {
 }
 
 .task-item.collapsed::before,
-.task-item.recurring.completed::before {
+.task-item.recurring.completed::before,
+.task-item.deadline.completed::before {
   top: 8px;
   bottom: 8px;
   background: var(--success);
@@ -662,17 +664,23 @@ select {
 .task-item.recurring.completed .task-time,
 .task-item.recurring.completed .task-tag,
 .task-item.recurring.completed .task-details,
-.task-item.recurring.completed .task-timer {
+.task-item.recurring.completed .task-timer,
+.task-item.deadline.completed .task-time,
+.task-item.deadline.completed .task-tag,
+.task-item.deadline.completed .task-details,
+.task-item.deadline.completed .task-timer {
   display: none;
 }
 
 .task-item.collapsed .task-meta,
-.task-item.recurring.completed .task-meta {
+.task-item.recurring.completed .task-meta,
+.task-item.deadline.completed .task-meta {
   display: none;
 }
 
 .task-item.collapsed .task-title,
-.task-item.recurring.completed .task-title {
+.task-item.recurring.completed .task-title,
+.task-item.deadline.completed .task-title {
   color: var(--text-muted);
   font-size: 13px;
   text-decoration: line-through;

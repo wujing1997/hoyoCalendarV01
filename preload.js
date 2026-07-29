@@ -196,12 +196,14 @@ const EventStore = {
     
     events.forEach(e => {
       if (e.isDeadline) {
-        if (this.isDateInDeadlineRange(dateStr, e)) {
+        const isDeadlineCompletedForDate = this.isDeadlineCompletedForDate(dateStr, e);
+        if (this.isDateInDeadlineRange(dateStr, e) || isDeadlineCompletedForDate) {
           result.push({
             ...e,
             date: dateStr,
             isDeadlineInstance: true,
             deadlineParentId: e.id,
+            isCompleted: isDeadlineCompletedForDate,
             daysRemaining: this.calculateDaysRemaining(dateStr, e.deadlineDate),
           });
         }
@@ -243,6 +245,21 @@ const EventStore = {
 
   isDateInDeadlineRange(dateStr, event) {
     if (event.isDeadlineCompleted) return false;
+    const date = this.parseLocalDate(dateStr);
+    const startDate = this.parseLocalDate(event.startDate || event.date);
+    const deadlineDate = this.parseLocalDate(event.deadlineDate || event.endDate);
+    if (!date || !startDate || !deadlineDate) return false;
+    return date >= startDate && date <= deadlineDate;
+  },
+
+  isDeadlineCompletedForDate(dateStr, event) {
+    if (!event.isDeadlineCompleted) return false;
+    const completedAtDate = event.completedAt ? this.formatDate(new Date(event.completedAt)) : '';
+    const completedDate = event.deadlineCompletedDate || completedAtDate;
+    return completedDate === dateStr && this.isDateWithinDeadlineBounds(dateStr, event);
+  },
+
+  isDateWithinDeadlineBounds(dateStr, event) {
     const date = this.parseLocalDate(dateStr);
     const startDate = this.parseLocalDate(event.startDate || event.date);
     const deadlineDate = this.parseLocalDate(event.deadlineDate || event.endDate);
@@ -332,12 +349,13 @@ const EventStore = {
     return null;
   },
 
-  completeDeadlineEvent(parentId) {
+  completeDeadlineEvent(parentId, dateStr) {
     const events = this.loadEvents();
     const index = events.findIndex(e => String(e.id) === String(parentId));
 
     if (index !== -1 && events[index].isDeadline) {
       events[index].isDeadlineCompleted = true;
+      events[index].deadlineCompletedDate = dateStr || this.formatDate(new Date());
       events[index].completedAt = new Date().toISOString();
       events[index].updatedAt = new Date().toISOString();
       return this.saveEvents(events) ? events[index] : null;
@@ -409,7 +427,14 @@ const EventStore = {
     
     events.forEach(e => {
       if (e.isDeadline) {
-        if (e.isDeadlineCompleted) return;
+        if (e.isDeadlineCompleted) {
+          const completedAtDate = e.completedAt ? this.formatDate(new Date(e.completedAt)) : '';
+          const completedDate = e.deadlineCompletedDate || completedAtDate;
+          if (completedDate && this.isDateWithinDeadlineBounds(completedDate, e)) {
+            counts[completedDate] = (counts[completedDate] || 0) + 1;
+          }
+          return;
+        }
         const startDate = this.parseLocalDate(e.startDate || e.date);
         const deadlineDate = this.parseLocalDate(e.deadlineDate || e.endDate);
         if (!startDate || !deadlineDate) return;
@@ -557,7 +582,7 @@ contextBridge.exposeInMainWorld('eventAPI', {
   // 长期任务相关
   toggleRecurringDateComplete: (parentId, dateStr) => EventStore.toggleRecurringDateComplete(parentId, dateStr),
   getRecurringEvents: () => EventStore.getRecurringEvents(),
-  completeDeadlineEvent: (parentId) => EventStore.completeDeadlineEvent(parentId),
+  completeDeadlineEvent: (parentId, dateStr) => EventStore.completeDeadlineEvent(parentId, dateStr),
   // 计时相关
   getTimerRecord: (eventId, dateStr) => EventStore.getTimerRecord(eventId, dateStr),
   startTimer: (eventId, dateStr) => EventStore.startTimer(eventId, dateStr),

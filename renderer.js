@@ -1022,7 +1022,9 @@ function createTaskElement(event) {
   // 对于长期任务实例，使用 parentId + date 作为唯一标识
   const collapseKey = event.isRecurringInstance 
     ? `${event.recurringParentId}_${event.date}` 
-    : event.id;
+    : (event.isDeadlineInstance
+      ? `${event.deadlineParentId}_${event.date}`
+      : event.id);
   taskEl.dataset.collapseKey = collapseKey;
   
   // 应用保存的折叠状态
@@ -1036,6 +1038,9 @@ function createTaskElement(event) {
 
   if (event.isDeadline || event.isDeadlineInstance) {
     taskEl.classList.add('deadline');
+    if (event.isCompleted) {
+      taskEl.classList.add('completed');
+    }
   }
   
   // 长期任务标记
@@ -1150,7 +1155,7 @@ function createTaskElement(event) {
         const parentId = getDeadlineOwnerId(event);
 
         if (window.eventAPI && window.eventAPI.completeDeadlineEvent) {
-          window.eventAPI.completeDeadlineEvent(parentId);
+          window.eventAPI.completeDeadlineEvent(parentId, event.date || LunarHelper.formatDate(state.currentDate));
           state.events = window.eventAPI.loadEvents();
         } else {
           const index = state.events.findIndex(item => String(item.id) === String(parentId));
@@ -1158,6 +1163,7 @@ function createTaskElement(event) {
             state.events[index] = {
               ...state.events[index],
               isDeadlineCompleted: true,
+              deadlineCompletedDate: event.date || LunarHelper.formatDate(state.currentDate),
               completedAt: new Date().toISOString(),
             };
           }
