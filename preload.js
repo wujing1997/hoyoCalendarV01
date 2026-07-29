@@ -354,9 +354,15 @@ const EventStore = {
     const index = events.findIndex(e => String(e.id) === String(parentId));
 
     if (index !== -1 && events[index].isDeadline) {
-      events[index].isDeadlineCompleted = true;
-      events[index].deadlineCompletedDate = dateStr || this.formatDate(new Date());
-      events[index].completedAt = new Date().toISOString();
+      if (events[index].isDeadlineCompleted) {
+        events[index].isDeadlineCompleted = false;
+        delete events[index].deadlineCompletedDate;
+        delete events[index].completedAt;
+      } else {
+        events[index].isDeadlineCompleted = true;
+        events[index].deadlineCompletedDate = dateStr || this.formatDate(new Date());
+        events[index].completedAt = new Date().toISOString();
+      }
       events[index].updatedAt = new Date().toISOString();
       return this.saveEvents(events) ? events[index] : null;
     }

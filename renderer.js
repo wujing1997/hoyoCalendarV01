@@ -1160,12 +1160,21 @@ function createTaskElement(event) {
         } else {
           const index = state.events.findIndex(item => String(item.id) === String(parentId));
           if (index !== -1) {
-            state.events[index] = {
-              ...state.events[index],
-              isDeadlineCompleted: true,
-              deadlineCompletedDate: event.date || LunarHelper.formatDate(state.currentDate),
-              completedAt: new Date().toISOString(),
-            };
+            if (state.events[index].isDeadlineCompleted) {
+              state.events[index] = {
+                ...state.events[index],
+                isDeadlineCompleted: false,
+              };
+              delete state.events[index].deadlineCompletedDate;
+              delete state.events[index].completedAt;
+            } else {
+              state.events[index] = {
+                ...state.events[index],
+                isDeadlineCompleted: true,
+                deadlineCompletedDate: event.date || LunarHelper.formatDate(state.currentDate),
+                completedAt: new Date().toISOString(),
+              };
+            }
           }
         }
         refreshTaskCounts();
