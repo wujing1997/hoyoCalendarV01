@@ -1,5 +1,6 @@
 """Cloud Agent gateway: plan-only, never writes events, never persists bodies."""
 
+import json
 import re
 import threading
 import time
@@ -310,7 +311,11 @@ class AgentService:
                         {
                             "id": call.id,
                             "type": "function",
-                            "function": {"name": call.name, "arguments": call.arguments},
+                            "function": {
+                                "name": call.name,
+                                # OpenAI 线格式要求 arguments 为 JSON 字符串（DeepSeek 严格校验）
+                                "arguments": json.dumps(call.arguments, ensure_ascii=False),
+                            },
                         }
                         for call in result.tool_calls
                     ]
@@ -365,7 +370,7 @@ class AgentService:
                 )
             except Exception:
                 pass
-            raise AgentError(502, error.code, "AI 请求失败，请稍后再试")
+            raise AgentError(502, error.code, f"AI 请求失败：{error.detail}")
         finally:
             self._semaphore.release()
 

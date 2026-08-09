@@ -80,12 +80,22 @@ S2=$(echo "$R2" | python3 -c "import sys,json;print(json.load(sys.stdin)['result
 echo "stale update: $S2"
 [ "$S2" = "conflict" ] || { echo "FAIL: expected conflict" >&2; exit 1; }
 
-echo "== 7. AI 未配置 =="
+echo "== 7. AI 网关 =="
+AI_BODY=$(curl -s -X POST "$API/api/v1/agent/plan" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"message":"创建明天的会议"}')
 AI_RESP=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/agent/plan" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"message":"创建明天的会议"}')
-echo "agent plan http=$AI_RESP (期望 503 未配置)"
-[ "$AI_RESP" = "503" ] || { echo "FAIL: expected 503, got $AI_RESP" >&2; exit 1; }
+if [ "$AI_RESP" = "503" ]; then
+  echo "agent plan http=$AI_RESP (AI 未配置，测试环境配置 API Key 后应返回 200)"
+elif [ "$AI_RESP" = "200" ]; then
+  ACTIONS=$(echo "$AI_BODY" | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('actions',[])))" 2>/dev/null || echo "0")
+  echo "agent plan http=200 OK (actions=$ACTIONS)"
+else
+  echo "agent plan http=$AI_RESP（非预期，见日志）" >&2
+  exit 1
+fi
 
 echo
 echo "SMOKE PASS"

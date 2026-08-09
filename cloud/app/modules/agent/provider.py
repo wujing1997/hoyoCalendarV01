@@ -61,9 +61,10 @@ class OpenAICompatibleProvider:
             raise ProviderError("network_error", f"model request failed: {error}")
 
         if response.status_code != 200:
+            snippet = (response.text or "")[:300].replace("\n", " ")
             raise ProviderError(
                 "upstream_error",
-                f"model returned HTTP {response.status_code}",
+                f"model returned HTTP {response.status_code}: {snippet}",
             )
         try:
             body = response.json()

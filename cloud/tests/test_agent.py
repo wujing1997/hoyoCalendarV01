@@ -182,3 +182,36 @@ def test_agent_not_configured_without_provider(client):
     user = make_user(client)
     resp = _plan(client, user)
     assert resp.status_code == 503
+
+
+def test_assistant_tool_call_arguments_serialized_as_json_string(client):
+    """回归：多轮工具循环回填 assistant.tool_calls 时，arguments 必须是 JSON 字符串
+    （OpenAI 线格式 / DeepSeek 严格校验），否则第 2 轮请求会被上游 400 拒绝。"""
+    import json as jsonlib
+
+    from app.modules.agent.provider import FakeProvider, ToolCall
+    from app.modules.agent.router import _agent_service
+
+    class WireCheckProvider(FakeProvider):
+        def __init__(self):
+            super().__init__(plan=[
+                {"tool_calls": [{"name": "create_event", "arguments": {"event": "x", "date": "2026-08-10"}}]},
+                {"content": "完成。"},
+            ])
+            self.checked = False
+
+        def complete(self, messages, tools, model):
+            for message in messages:
+                if message.get("role") == "assistant" and message.get("tool_calls"):
+                    for call in message["tool_calls"]:
+                        arguments = call["function"]["arguments"]
+                        assert isinstance(arguments, str), "tool_calls arguments 必须是 JSON 字符串"
+                        jsonlib.loads(arguments)
+                    self.checked = True
+            return super().complete(messages, tools, model)
+
+    _agent_service.provider_override = WireCheckProvider()
+    user = make_user(client)
+    resp = _plan(client, user)
+    assert resp.status_code == 200
+    assert _agent_service.provider_override.checked
