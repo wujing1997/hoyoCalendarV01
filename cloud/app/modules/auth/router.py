@@ -1,4 +1,11 @@
-"""Auth HTTP routes."""
+"""Auth HTTP routes.
+
+Paths follow 权威方案 §6.1（挂载前缀 /api/v1）：
+  POST   /auth/register /auth/login /auth/refresh /auth/logout
+  GET    /me
+  GET    /sessions
+  DELETE /sessions/{session_id}
+"""
 
 import uuid
 
@@ -17,7 +24,8 @@ from ...schemas import (
 )
 from . import service
 
-router = APIRouter(tags=["auth"])
+auth_router = APIRouter(tags=["auth"])
+sessions_router = APIRouter(tags=["account"])
 
 
 def _auth_error(error: service.AuthError):
@@ -26,7 +34,7 @@ def _auth_error(error: service.AuthError):
     raise HTTPException(status_code=error.status_code, detail=error.detail)
 
 
-@router.post(
+@auth_router.post(
     "/register",
     response_model=TokenResponse,
     responses={400: {"description": "invalid/used/expired invite or bad input"}, 409: {"description": "email taken"}, 429: {"description": "rate limited"}},
@@ -41,7 +49,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         _auth_error(error)
 
 
-@router.post(
+@auth_router.post(
     "/login",
     response_model=TokenResponse,
     responses={401: {"description": "bad credentials"}, 403: {"description": "account disabled or device limit reached"}, 429: {"description": "rate limited"}},
@@ -54,7 +62,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         _auth_error(error)
 
 
-@router.post(
+@auth_router.post(
     "/refresh",
     response_model=TokenResponse,
     responses={401: {"description": "invalid or expired refresh token"}},
@@ -67,7 +75,7 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
         _auth_error(error)
 
 
-@router.post("/logout", responses={204: {"description": "logged out"}})
+@auth_router.post("/logout", status_code=204, responses={204: {"description": "logged out"}})
 def logout(
     current=Depends(require_user),
     body: dict = None,
@@ -85,13 +93,13 @@ def logout(
     return None
 
 
-@router.get("/me", response_model=UserProfile)
+@sessions_router.get("/me", response_model=UserProfile)
 def me(current=Depends(require_user), db: Session = Depends(get_db)):
-    return service.profile(db, current["user"], current["device_id"])
+    return service.profile(db, current["user"])
 
 
-@router.get("/devices", response_model=list[DeviceInfo])
-def devices(current=Depends(require_user), db: Session = Depends(get_db)):
+@sessions_router.get("/sessions", response_model=list[DeviceInfo])
+def sessions(current=Depends(require_user), db: Session = Depends(get_db)):
     user_id = current["user"].id
     current_device_id = current["device_id"]
     return [
@@ -107,10 +115,10 @@ def devices(current=Depends(require_user), db: Session = Depends(get_db)):
     ]
 
 
-@router.delete("/devices/{device_id}", status_code=204, responses={204: {"description": "revoked"}, 404: {"description": "device not found"}})
-def revoke_device(device_id: uuid.UUID, current=Depends(require_user), db: Session = Depends(get_db)):
+@sessions_router.delete("/sessions/{session_id}", status_code=204, responses={204: {"description": "revoked"}, 404: {"description": "session not found"}})
+def revoke_session(session_id: uuid.UUID, current=Depends(require_user), db: Session = Depends(get_db)):
     try:
-        service.revoke_device(db, current["user"].id, device_id)
+        service.revoke_device(db, current["user"].id, session_id)
     except service.AuthError as error:
         _auth_error(error)
     return None

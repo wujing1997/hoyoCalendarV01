@@ -57,7 +57,7 @@ def restore(
     db: Session = Depends(get_db),
 ):
     try:
-        return service.restore(db, current["user"].id, payload.event_id)
+        return service.restore(db, current["user"].id, payload.eventId)
     except service.SyncError as error:
         from fastapi import HTTPException
 

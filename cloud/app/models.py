@@ -40,6 +40,8 @@ class InviteCode(Base):
     code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="unused")
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    max_uses: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     used_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

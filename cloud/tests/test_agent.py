@@ -11,7 +11,7 @@ def _plan(client, user, message="创建明天的项目会议", snapshot=None):
     if snapshot is not None:
         payload["snapshot"] = snapshot
     return client["api"].post(
-        "/api/agent/plan",
+        "/api/v1/agent/plan",
         json=payload,
         headers=auth_headers(user["access_token"]),
     )
@@ -48,7 +48,7 @@ def test_agent_does_not_write_events(client):
     ])
     user = make_user(client)
     _plan(client, user)
-    pulled = client["api"].get("/api/sync/pull", headers=auth_headers(user["access_token"]))
+    pulled = client["api"].get("/api/v1/sync/pull", headers=auth_headers(user["access_token"]))
     assert pulled.json()["events"] == []
 
 
@@ -94,7 +94,7 @@ def test_snapshot_and_message_not_in_usage_columns(client):
 def test_plan_requires_message(client):
     user = make_user(client)
     resp = client["api"].post(
-        "/api/agent/plan",
+        "/api/v1/agent/plan",
         json={"message": ""},
         headers=auth_headers(user["access_token"]),
     )
@@ -105,7 +105,7 @@ def test_plan_rejects_oversized_snapshot(client):
     user = make_user(client)
     snapshot = [{"event": f"e{i}"} for i in range(501)]
     resp = client["api"].post(
-        "/api/agent/plan",
+        "/api/v1/agent/plan",
         json={"message": "查看", "snapshot": snapshot},
         headers=auth_headers(user["access_token"]),
     )
@@ -119,10 +119,10 @@ def test_budget_circuit_breaker_blocks_ai_only(client):
     _agent_service.provider_override = FakeProvider(plan=[{"content": "ok"}])
     user = make_user(client)
     token = client["admin"]
-    admin_resp = token.post("/api/admin/login", json={"username": "admin", "password": "correct-horse-battery-staple"})
+    admin_resp = token.post("/api/v1/admin/login", json={"username": "admin", "password": "correct-horse-battery-staple"})
     admin_token = admin_resp.json()["token"]
     set_resp = token.put(
-        "/api/admin/settings",
+        "/api/v1/admin/settings",
         json={"ai_enabled": True, "ai_monthly_budget_usd": 0.01},
         headers=auth_headers(admin_token),
     )
@@ -133,7 +133,7 @@ def test_budget_circuit_breaker_blocks_ai_only(client):
     from app import models
 
     db = get_session()
-    me = client["api"].get("/api/auth/me", headers=auth_headers(user["access_token"])).json()
+    me = client["api"].get("/api/v1/me", headers=auth_headers(user["access_token"])).json()
     db.add(models.AiUsage(
         user_id=me["id"], model="test", prompt_tokens=1000,
         completion_tokens=1000, estimated_cost_usd=0.05, latency_ms=1,
@@ -146,8 +146,8 @@ def test_budget_circuit_breaker_blocks_ai_only(client):
     assert agent_resp.status_code == 429
 
     # calendar and sync are unaffected
-    assert client["api"].get("/api/health").status_code == 200
-    assert client["api"].get("/api/auth/me", headers=auth_headers(user["access_token"])).status_code == 200
+    assert client["api"].get("/healthz").status_code == 200
+    assert client["api"].get("/api/v1/me", headers=auth_headers(user["access_token"])).status_code == 200
 
 
 def test_admin_switch_disables_ai(client):
@@ -156,10 +156,10 @@ def test_admin_switch_disables_ai(client):
 
     _agent_service.provider_override = FakeProvider(plan=[{"content": "ok"}])
     user = make_user(client)
-    admin_resp = client["admin"].post("/api/admin/login", json={"username": "admin", "password": "correct-horse-battery-staple"})
+    admin_resp = client["admin"].post("/api/v1/admin/login", json={"username": "admin", "password": "correct-horse-battery-staple"})
     admin_token = admin_resp.json()["token"]
     set_resp = client["admin"].put(
-        "/api/admin/settings",
+        "/api/v1/admin/settings",
         json={"ai_enabled": False, "ai_monthly_budget_usd": 0.0},
         headers=auth_headers(admin_token),
     )
@@ -167,11 +167,11 @@ def test_admin_switch_disables_ai(client):
 
     agent_resp = _plan(client, user)
     assert agent_resp.status_code == 503
-    assert client["api"].get("/api/health").status_code == 200
+    assert client["api"].get("/healthz").status_code == 200
 
 
 def test_agent_requires_auth(client):
-    resp = client["api"].post("/api/agent/plan", json={"message": "hi"})
+    resp = client["api"].post("/api/v1/agent/plan", json={"message": "hi"})
     assert resp.status_code == 401
 
 

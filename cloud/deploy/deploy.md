@@ -73,7 +73,7 @@ sudo systemctl enable --now hoyocalendar-api hoyocalendar-admin
 
 ```bash
 # 健康检查
-curl -s http://127.0.0.1:8000/api/health
+curl -s http://127.0.0.1:8000/healthz
 # 期望：{"status":"ok","version":"0.1.0","database":"up",...}
 
 # 管理服务只在本机可达（公网无监听）
@@ -94,10 +94,10 @@ sudo journalctl -u hoyocalendar-api -n 50 --no-pager
 sudo systemctl restart hoyocalendar-api
 
 # 生成新邀请码（需管理令牌）
-TOKEN=$(curl -s -X POST http://127.0.0.1:8001/api/admin/login \
+TOKEN=$(curl -s -X POST http://127.0.0.1:8001/api/v1/admin/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<管理密码>"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
-curl -s -X POST http://127.0.0.1:8001/api/admin/invites \
+curl -s -X POST http://127.0.0.1:8001/api/v1/admin/invites \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"expires_days":30}'
 ```
 
@@ -111,7 +111,7 @@ curl -s -X POST http://127.0.0.1:8001/api/admin/invites \
    # 将 cloud/ 恢复为上一发布版本（git checkout 旧提交后 rsync 覆盖）
    sudo -u hoyo rsync -a --delete /opt/hoyocalendar/cloud_release_OLD/ /opt/hoyocalendar/cloud/
    sudo systemctl start hoyocalendar-api hoyocalendar-admin
-   curl -s http://127.0.0.1:8000/api/health
+   curl -s http://127.0.0.1:8000/healthz
    ```
 
 2. **数据库回退**（仅当迁移出错）：Alembic 支持降级：

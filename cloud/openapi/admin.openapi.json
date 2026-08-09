@@ -5,13 +5,13 @@
     "version": "0.1.0"
   },
   "paths": {
-    "/api/auth/register": {
+    "/api/v1/auth/register": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Register",
-        "operationId": "register_api_auth_register_post",
+        "operationId": "register_api_v1_auth_register_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -55,13 +55,13 @@
         }
       }
     },
-    "/api/auth/login": {
+    "/api/v1/auth/login": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Login",
-        "operationId": "login_api_auth_login_post",
+        "operationId": "login_api_v1_auth_login_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -105,13 +105,13 @@
         }
       }
     },
-    "/api/auth/refresh": {
+    "/api/v1/auth/refresh": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Refresh",
-        "operationId": "refresh_api_auth_refresh_post",
+        "operationId": "refresh_api_v1_auth_refresh_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -149,13 +149,13 @@
         }
       }
     },
-    "/api/auth/logout": {
+    "/api/v1/auth/logout": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Logout",
-        "operationId": "logout_api_auth_logout_post",
+        "operationId": "logout_api_v1_auth_logout_post",
         "parameters": [
           {
             "name": "authorization",
@@ -186,14 +186,6 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
           "204": {
             "description": "logged out"
           },
@@ -210,13 +202,13 @@
         }
       }
     },
-    "/api/auth/me": {
+    "/api/v1/me": {
       "get": {
         "tags": [
-          "auth"
+          "account"
         ],
         "summary": "Me",
-        "operationId": "me_api_auth_me_get",
+        "operationId": "me_api_v1_me_get",
         "parameters": [
           {
             "name": "authorization",
@@ -259,13 +251,13 @@
         }
       }
     },
-    "/api/auth/devices": {
+    "/api/v1/sessions": {
       "get": {
         "tags": [
-          "auth"
+          "account"
         ],
-        "summary": "Devices",
-        "operationId": "devices_api_auth_devices_get",
+        "summary": "Sessions",
+        "operationId": "sessions_api_v1_sessions_get",
         "parameters": [
           {
             "name": "authorization",
@@ -294,7 +286,7 @@
                   "items": {
                     "$ref": "#/components/schemas/DeviceInfo"
                   },
-                  "title": "Response Devices Api Auth Devices Get"
+                  "title": "Response Sessions Api V1 Sessions Get"
                 }
               }
             }
@@ -312,22 +304,22 @@
         }
       }
     },
-    "/api/auth/devices/{device_id}": {
+    "/api/v1/sessions/{session_id}": {
       "delete": {
         "tags": [
-          "auth"
+          "account"
         ],
-        "summary": "Revoke Device",
-        "operationId": "revoke_device_api_auth_devices__device_id__delete",
+        "summary": "Revoke Session",
+        "operationId": "revoke_session_api_v1_sessions__session_id__delete",
         "parameters": [
           {
-            "name": "device_id",
+            "name": "session_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Device Id"
+              "title": "Session Id"
             }
           },
           {
@@ -352,7 +344,7 @@
             "description": "revoked"
           },
           "404": {
-            "description": "device not found"
+            "description": "session not found"
           },
           "422": {
             "description": "Validation Error",
@@ -367,13 +359,13 @@
         }
       }
     },
-    "/api/sync/pull": {
+    "/api/v1/sync/pull": {
       "get": {
         "tags": [
           "sync"
         ],
         "summary": "Pull",
-        "operationId": "pull_api_sync_pull_get",
+        "operationId": "pull_api_v1_sync_pull_get",
         "parameters": [
           {
             "name": "cursor",
@@ -445,13 +437,13 @@
         }
       }
     },
-    "/api/sync/push": {
+    "/api/v1/sync/push": {
       "post": {
         "tags": [
           "sync"
         ],
         "summary": "Push",
-        "operationId": "push_api_sync_push_post",
+        "operationId": "push_api_v1_sync_push_post",
         "parameters": [
           {
             "name": "authorization",
@@ -504,13 +496,13 @@
         }
       }
     },
-    "/api/sync/trash": {
+    "/api/v1/sync/trash": {
       "get": {
         "tags": [
           "sync"
         ],
         "summary": "Trash",
-        "operationId": "trash_api_sync_trash_get",
+        "operationId": "trash_api_v1_sync_trash_get",
         "parameters": [
           {
             "name": "authorization",
@@ -553,13 +545,13 @@
         }
       }
     },
-    "/api/sync/restore": {
+    "/api/v1/sync/restore": {
       "post": {
         "tags": [
           "sync"
         ],
         "summary": "Restore",
-        "operationId": "restore_api_sync_restore_post",
+        "operationId": "restore_api_v1_sync_restore_post",
         "parameters": [
           {
             "name": "authorization",
@@ -612,13 +604,13 @@
         }
       }
     },
-    "/api/agent/plan": {
+    "/api/v1/agent/plan": {
       "post": {
         "tags": [
           "agent"
         ],
         "summary": "Plan",
-        "operationId": "plan_api_agent_plan_post",
+        "operationId": "plan_api_v1_agent_plan_post",
         "parameters": [
           {
             "name": "authorization",
@@ -680,13 +672,13 @@
         }
       }
     },
-    "/api/admin/login": {
+    "/api/v1/admin/login": {
       "post": {
         "tags": [
           "admin"
         ],
         "summary": "Login",
-        "operationId": "login_api_admin_login_post",
+        "operationId": "login_api_v1_admin_login_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -727,13 +719,55 @@
         }
       }
     },
-    "/api/admin/invites": {
+    "/api/v1/admin/logout": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Logout",
+        "operationId": "logout_api_v1_admin_logout_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "logged out"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/invites": {
       "get": {
         "tags": [
           "admin"
         ],
         "summary": "List Invites",
-        "operationId": "list_invites_api_admin_invites_get",
+        "operationId": "list_invites_api_v1_admin_invites_get",
         "parameters": [
           {
             "name": "authorization",
@@ -762,7 +796,7 @@
                   "items": {
                     "$ref": "#/components/schemas/InviteView"
                   },
-                  "title": "Response List Invites Api Admin Invites Get"
+                  "title": "Response List Invites Api V1 Admin Invites Get"
                 }
               }
             }
@@ -784,7 +818,7 @@
           "admin"
         ],
         "summary": "Create Invite",
-        "operationId": "create_invite_api_admin_invites_post",
+        "operationId": "create_invite_api_v1_admin_invites_post",
         "parameters": [
           {
             "name": "authorization",
@@ -837,13 +871,13 @@
         }
       }
     },
-    "/api/admin/invites/{invite_id}": {
+    "/api/v1/admin/invites/{invite_id}": {
       "delete": {
         "tags": [
           "admin"
         ],
         "summary": "Revoke Invite",
-        "operationId": "revoke_invite_api_admin_invites__invite_id__delete",
+        "operationId": "revoke_invite_api_v1_admin_invites__invite_id__delete",
         "parameters": [
           {
             "name": "invite_id",
@@ -891,13 +925,13 @@
         }
       }
     },
-    "/api/admin/users": {
+    "/api/v1/admin/users": {
       "get": {
         "tags": [
           "admin"
         ],
         "summary": "List Users",
-        "operationId": "list_users_api_admin_users_get",
+        "operationId": "list_users_api_v1_admin_users_get",
         "parameters": [
           {
             "name": "authorization",
@@ -926,7 +960,7 @@
                   "items": {
                     "$ref": "#/components/schemas/UserAdminView"
                   },
-                  "title": "Response List Users Api Admin Users Get"
+                  "title": "Response List Users Api V1 Admin Users Get"
                 }
               }
             }
@@ -944,13 +978,13 @@
         }
       }
     },
-    "/api/admin/users/{user_id}": {
+    "/api/v1/admin/users/{user_id}": {
       "patch": {
         "tags": [
           "admin"
         ],
         "summary": "Update User",
-        "operationId": "update_user_api_admin_users__user_id__patch",
+        "operationId": "update_user_api_v1_admin_users__user_id__patch",
         "parameters": [
           {
             "name": "user_id",
@@ -1013,13 +1047,13 @@
         }
       }
     },
-    "/api/admin/users/{user_id}/revoke-sessions": {
+    "/api/v1/admin/users/{user_id}/revoke-sessions": {
       "post": {
         "tags": [
           "admin"
         ],
         "summary": "Revoke Sessions",
-        "operationId": "revoke_sessions_api_admin_users__user_id__revoke_sessions_post",
+        "operationId": "revoke_sessions_api_v1_admin_users__user_id__revoke_sessions_post",
         "parameters": [
           {
             "name": "user_id",
@@ -1065,13 +1099,13 @@
         }
       }
     },
-    "/api/admin/usage": {
+    "/api/v1/admin/usage": {
       "get": {
         "tags": [
           "admin"
         ],
         "summary": "Usage",
-        "operationId": "usage_api_admin_usage_get",
+        "operationId": "usage_api_v1_admin_usage_get",
         "parameters": [
           {
             "name": "days",
@@ -1124,13 +1158,13 @@
         }
       }
     },
-    "/api/admin/settings": {
+    "/api/v1/admin/settings": {
       "get": {
         "tags": [
           "admin"
         ],
         "summary": "Get Settings",
-        "operationId": "get_settings_api_admin_settings_get",
+        "operationId": "get_settings_api_v1_admin_settings_get",
         "parameters": [
           {
             "name": "authorization",
@@ -1177,7 +1211,7 @@
           "admin"
         ],
         "summary": "Put Settings",
-        "operationId": "put_settings_api_admin_settings_put",
+        "operationId": "put_settings_api_v1_admin_settings_put",
         "parameters": [
           {
             "name": "authorization",
@@ -1230,13 +1264,13 @@
         }
       }
     },
-    "/api/admin/audit": {
+    "/api/v1/admin/audit": {
       "get": {
         "tags": [
           "admin"
         ],
         "summary": "Audit",
-        "operationId": "audit_api_admin_audit_get",
+        "operationId": "audit_api_v1_admin_audit_get",
         "parameters": [
           {
             "name": "limit",
@@ -1275,7 +1309,7 @@
                   "items": {
                     "$ref": "#/components/schemas/AuditLogView"
                   },
-                  "title": "Response Audit Api Admin Audit Get"
+                  "title": "Response Audit Api V1 Admin Audit Get"
                 }
               }
             }
@@ -1293,13 +1327,13 @@
         }
       }
     },
-    "/api/health": {
+    "/healthz": {
       "get": {
         "tags": [
           "health"
         ],
-        "summary": "Health",
-        "operationId": "health_api_health_get",
+        "summary": "Healthz",
+        "operationId": "healthz_healthz_get",
         "responses": {
           "200": {
             "description": "service healthy",
@@ -1618,19 +1652,19 @@
       },
       "CloudEvent": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           },
           "version": {
             "type": "integer",
             "title": "Version"
           },
-          "operation_id": {
+          "operationId": {
             "type": "string",
             "format": "uuid",
-            "title": "Operation Id"
+            "title": "Operationid"
           },
           "seq": {
             "type": "integer",
@@ -1641,7 +1675,7 @@
             "title": "Deleted",
             "default": false
           },
-          "trash_until": {
+          "trashUntil": {
             "anyOf": [
               {
                 "type": "string",
@@ -1651,7 +1685,7 @@
                 "type": "null"
               }
             ],
-            "title": "Trash Until"
+            "title": "Trashuntil"
           },
           "data": {
             "anyOf": [
@@ -1668,9 +1702,9 @@
         },
         "type": "object",
         "required": [
-          "event_id",
+          "eventId",
           "version",
-          "operation_id",
+          "operationId",
           "seq"
         ],
         "title": "CloudEvent"
@@ -1713,26 +1747,26 @@
       },
       "EventChange": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           },
           "version": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Version"
           },
-          "base_version": {
+          "baseVersion": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Base Version",
+            "title": "Baseversion",
             "default": 0
           },
-          "operation_id": {
+          "operationId": {
             "type": "string",
             "format": "uuid",
-            "title": "Operation Id"
+            "title": "Operationid"
           },
           "op": {
             "type": "string",
@@ -1757,9 +1791,9 @@
         },
         "type": "object",
         "required": [
-          "event_id",
+          "eventId",
           "version",
-          "operation_id",
+          "operationId",
           "op"
         ],
         "title": "EventChange"
@@ -1791,6 +1825,13 @@
               }
             ],
             "title": "Expires Days"
+          },
+          "max_uses": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Uses",
+            "default": 1
           }
         },
         "type": "object",
@@ -1817,6 +1858,16 @@
               }
             ],
             "title": "Expires At"
+          },
+          "max_uses": {
+            "type": "integer",
+            "title": "Max Uses",
+            "default": 1
+          },
+          "use_count": {
+            "type": "integer",
+            "title": "Use Count",
+            "default": 0
           },
           "used_by_user_id": {
             "anyOf": [
@@ -1882,6 +1933,16 @@
               }
             ],
             "title": "Expires At"
+          },
+          "max_uses": {
+            "type": "integer",
+            "title": "Max Uses",
+            "default": 1
+          },
+          "use_count": {
+            "type": "integer",
+            "title": "Use Count",
+            "default": 0
           },
           "used_by_user_id": {
             "anyOf": [
@@ -1955,14 +2016,14 @@
             "type": "integer",
             "title": "Cursor"
           },
-          "has_more": {
+          "hasMore": {
             "type": "boolean",
-            "title": "Has More",
+            "title": "Hasmore",
             "default": false
           },
-          "reconcile_required": {
+          "reconcileRequired": {
             "type": "boolean",
-            "title": "Reconcile Required",
+            "title": "Reconcilerequired",
             "default": false
           },
           "events": {
@@ -2020,10 +2081,10 @@
       },
       "PushResultItem": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           },
           "status": {
             "type": "string",
@@ -2039,7 +2100,7 @@
             "type": "integer",
             "title": "Version"
           },
-          "server_version": {
+          "serverVersion": {
             "anyOf": [
               {
                 "type": "integer"
@@ -2048,7 +2109,7 @@
                 "type": "null"
               }
             ],
-            "title": "Server Version"
+            "title": "Serverversion"
           },
           "data": {
             "anyOf": [
@@ -2062,7 +2123,7 @@
             ],
             "title": "Data"
           },
-          "server_data": {
+          "serverData": {
             "anyOf": [
               {
                 "additionalProperties": true,
@@ -2072,7 +2133,7 @@
                 "type": "null"
               }
             ],
-            "title": "Server Data"
+            "title": "Serverdata"
           },
           "deleted": {
             "type": "boolean",
@@ -2093,7 +2154,7 @@
         },
         "type": "object",
         "required": [
-          "event_id",
+          "eventId",
           "status",
           "version"
         ],
@@ -2151,15 +2212,15 @@
       },
       "RestoreRequest": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           }
         },
         "type": "object",
         "required": [
-          "event_id"
+          "eventId"
         ],
         "title": "RestoreRequest"
       },
@@ -2234,24 +2295,24 @@
       },
       "TrashItem": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           },
           "version": {
             "type": "integer",
             "title": "Version"
           },
-          "deleted_at": {
+          "deletedAt": {
             "type": "string",
             "format": "date-time",
-            "title": "Deleted At"
+            "title": "Deletedat"
           },
-          "trash_until": {
+          "trashUntil": {
             "type": "string",
             "format": "date",
-            "title": "Trash Until"
+            "title": "Trashuntil"
           },
           "data": {
             "anyOf": [
@@ -2268,10 +2329,10 @@
         },
         "type": "object",
         "required": [
-          "event_id",
+          "eventId",
           "version",
-          "deleted_at",
-          "trash_until"
+          "deletedAt",
+          "trashUntil"
         ],
         "title": "TrashItem"
       },
@@ -2459,14 +2520,6 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
-          },
-          "devices": {
-            "items": {
-              "$ref": "#/components/schemas/DeviceInfo"
-            },
-            "type": "array",
-            "title": "Devices",
-            "default": []
           }
         },
         "type": "object",

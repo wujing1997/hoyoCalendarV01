@@ -65,11 +65,12 @@ def generate_code() -> str:
     return "HOYO-" + "".join(secrets.choice(alphabet) for _ in range(12))
 
 
-def create_invite(db: Session, actor: str, expires_days: Optional[int]) -> dict:
+def create_invite(db: Session, actor: str, expires_days: Optional[int], max_uses: int = 1) -> dict:
     code = generate_code()
     invite = models.InviteCode(
         code_hash=sha256_hex(code),
         status="unused",
+        max_uses=max_uses,
         expires_at=(
             utcnow() + timedelta(days=expires_days)
             if expires_days

@@ -18,7 +18,7 @@ from .database import get_session, init_engine
 from .logging_config import configure_logging
 from .modules.admin.router import router as admin_router
 from .modules.agent.router import router as agent_router
-from .modules.auth.router import router as auth_router
+from .modules.auth.router import auth_router, sessions_router
 from .modules.sync.router import router as sync_router
 from .modules.sync.service import purge_expired
 
@@ -83,14 +83,14 @@ def create_app(include_admin: bool = False) -> FastAPI:
         logger.exception("unhandled error: %s", exc.__class__.__name__)
         return JSONResponse(status_code=500, content={"detail": "服务器内部错误"})
 
-    app.include_router(auth_router, prefix="/api/auth")
-    app.include_router(sync_router, prefix="/api/sync")
-    app.include_router(agent_router, prefix="/api/agent")
+    app.include_router(auth_router, prefix="/api/v1/auth")
+    app.include_router(sessions_router, prefix="/api/v1")
+    app.include_router(sync_router, prefix="/api/v1/sync")
+    app.include_router(agent_router, prefix="/api/v1/agent")
     if include_admin:
-        app.include_router(admin_router, prefix="/api/admin")
+        app.include_router(admin_router, prefix="/api/v1/admin")
 
-    @app.get("/api/health", tags=["health"], responses={200: {"description": "service healthy"}, 503: {"description": "database unreachable"}})
-    def health():
+    def _health_payload():
         try:
             db = get_session()
             try:
@@ -98,13 +98,27 @@ def create_app(include_admin: bool = False) -> FastAPI:
             finally:
                 db.close()
         except Exception:
-            return JSONResponse(status_code=503, content={"status": "degraded", "version": VERSION, "database": "down"})
+            return None
         return {
             "status": "ok",
             "version": VERSION,
             "database": "up",
             "time": datetime.now(timezone.utc).isoformat(),
         }
+
+    @app.get("/healthz", tags=["health"], responses={200: {"description": "service healthy"}, 503: {"description": "database unreachable"}})
+    def healthz():
+        payload = _health_payload()
+        if payload is None:
+            return JSONResponse(status_code=503, content={"status": "degraded", "version": VERSION, "database": "down"})
+        return payload
+
+    @app.get("/api/health", include_in_schema=False)
+    def health_alias():
+        payload = _health_payload()
+        if payload is None:
+            return JSONResponse(status_code=503, content={"status": "degraded", "version": VERSION, "database": "down"})
+        return payload
 
     return app
 

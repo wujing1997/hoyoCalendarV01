@@ -44,6 +44,11 @@ def login(payload: AdminLoginRequest):
     }
 
 
+@router.post("/logout", status_code=204, responses={204: {"description": "logged out"}})
+def logout(admin=Depends(require_admin)):
+    return None
+
+
 @router.get("/invites", response_model=list[InviteView])
 def list_invites(admin=Depends(require_admin), db: Session = Depends(get_db)):
     return [
@@ -51,6 +56,8 @@ def list_invites(admin=Depends(require_admin), db: Session = Depends(get_db)):
             id=i.id,
             status=i.status,
             expires_at=i.expires_at,
+            max_uses=i.max_uses,
+            use_count=i.use_count,
             used_by_user_id=i.used_by_user_id,
             created_at=i.created_at,
             used_at=i.used_at,
@@ -66,7 +73,7 @@ def create_invite(
     admin=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    result = service.create_invite(db, admin["username"], payload.expires_days)
+    result = service.create_invite(db, admin["username"], payload.expires_days, payload.max_uses)
     invite = result["invite"]
     return InviteCreateResponse(
         id=invite.id,

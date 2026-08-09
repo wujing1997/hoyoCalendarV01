@@ -63,12 +63,12 @@ def _validate_data(data) -> None:
 
 def _row_to_cloud_event(row: models.CalendarEvent) -> dict:
     return {
-        "event_id": row.event_id,
+        "eventId": row.event_id,
         "version": row.version,
-        "operation_id": row.operation_id,
+        "operationId": row.operation_id,
         "seq": row.seq,
         "deleted": row.deleted_at is not None,
-        "trash_until": row.trash_until,
+        "trashUntil": row.trash_until,
         "data": row.data,
     }
 
@@ -76,8 +76,8 @@ def _row_to_cloud_event(row: models.CalendarEvent) -> dict:
 def apply_push(db: Session, user_id: uuid.UUID, changes: list) -> list:
     results = []
     for change in changes:
-        event_id = change["event_id"]
-        operation_id = change["operation_id"]
+        event_id = change["eventId"]
+        operation_id = change["operationId"]
         op = change["op"]
         _validate_data(change.get("data"))
         results.append(
@@ -116,7 +116,7 @@ def _apply_change(db, user_id, event_id, operation_id, op, change) -> dict:
             event_id=event_id,
             operation_id=operation_id,
             version=version,
-            base_version=int(change.get("base_version") or 0),
+            base_version=int(change.get("baseVersion") or 0),
             data=change.get("data"),
             deleted_at=None,
             trash_until=None,
@@ -130,15 +130,15 @@ def _apply_change(db, user_id, event_id, operation_id, op, change) -> dict:
     if row.operation_id == operation_id:
         return _result("idempotent", event_id, row=row)
 
-    base_version = int(change.get("base_version") or 0)
+    base_version = int(change.get("baseVersion") or 0)
     if base_version < row.version:
         return {
-            "event_id": event_id,
+            "eventId": event_id,
             "status": "conflict",
             "version": row.version,
-            "server_version": row.version,
+            "serverVersion": row.version,
             "data": change.get("data"),
-            "server_data": row.data,
+            "serverData": row.data,
             "deleted": row.deleted_at is not None,
             "message": "版本冲突：本机版本落后于云端，未覆盖任何数据",
         }
@@ -176,7 +176,7 @@ def _create_tombstone(db, user_id, event_id, operation_id, change) -> models.Cal
         event_id=event_id,
         operation_id=operation_id,
         version=max(1, int(change.get("version") or 1)),
-        base_version=int(change.get("base_version") or 0),
+        base_version=int(change.get("baseVersion") or 0),
         data=None,
         deleted_at=utcnow(),
         trash_until=date.today() + timedelta(days=settings.trash_retention_days),
@@ -189,12 +189,12 @@ def _create_tombstone(db, user_id, event_id, operation_id, change) -> models.Cal
 
 def _result(status, event_id, row) -> dict:
     return {
-        "event_id": event_id,
+        "eventId": event_id,
         "status": status,
         "version": row.version,
-        "server_version": row.version,
+        "serverVersion": row.version,
         "data": row.data,
-        "server_data": row.data,
+        "serverData": row.data,
         "deleted": row.deleted_at is not None,
     }
 
@@ -232,8 +232,8 @@ def pull(db: Session, user_id: uuid.UUID, cursor: Optional[int], limit: int) -> 
         events = [_row_to_cloud_event(row) for row in rows]
         return {
             "cursor": events[-1]["seq"] if events else (cursor or 0),
-            "has_more": False,
-            "reconcile_required": True,
+            "hasMore": False,
+            "reconcileRequired": True,
             "events": events,
         }
 
@@ -250,8 +250,8 @@ def pull(db: Session, user_id: uuid.UUID, cursor: Optional[int], limit: int) -> 
     new_cursor = events[-1]["seq"] if events else base
     return {
         "cursor": new_cursor,
-        "has_more": has_more,
-        "reconcile_required": False,
+        "hasMore": has_more,
+        "reconcileRequired": False,
         "events": events,
     }
 
@@ -268,10 +268,10 @@ def list_trash(db: Session, user_id: uuid.UUID) -> list:
     ).scalars().all()
     return [
         {
-            "event_id": row.event_id,
+            "eventId": row.event_id,
             "version": row.version,
-            "deleted_at": row.deleted_at,
-            "trash_until": row.trash_until,
+            "deletedAt": row.deleted_at,
+            "trashUntil": row.trash_until,
             "data": row.data,
         }
         for row in rows

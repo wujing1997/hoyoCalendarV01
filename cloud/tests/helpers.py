@@ -5,15 +5,15 @@ import uuid
 
 
 def make_invite(admin_client):
-    resp = admin_client.post("/api/admin/login", json={
+    resp = admin_client.post("/api/v1/admin/login", json={
         "username": "admin",
         "password": "correct-horse-battery-staple",
     })
     assert resp.status_code == 200, resp.text
     token = resp.json()["token"]
     created = admin_client.post(
-        "/api/admin/invites",
-        json={"expires_days": 7},
+        "/api/v1/admin/invites",
+        json={"expires_days": 7, "max_uses": 1},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert created.status_code == 200, created.text
@@ -23,7 +23,7 @@ def make_invite(admin_client):
 def make_user(client, email=None, device_name="TestPC"):
     invite = make_invite(client["admin"])
     email = email or f"user-{secrets.token_hex(4)}@example.com"
-    resp = client["api"].post("/api/auth/register", json={
+    resp = client["api"].post("/api/v1/auth/register", json={
         "invite_code": invite,
         "email": email,
         "password": "SecurePass123!",
@@ -50,10 +50,10 @@ def new_event_id() -> str:
 
 def upsert_change(event_id, version, base_version, data, op="upsert"):
     return {
-        "event_id": event_id,
+        "eventId": event_id,
         "version": version,
-        "base_version": base_version,
-        "operation_id": str(uuid.uuid4()),
+        "baseVersion": base_version,
+        "operationId": str(uuid.uuid4()),
         "op": op,
         "data": data,
     }

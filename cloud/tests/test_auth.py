@@ -8,14 +8,14 @@ from .helpers import auth_headers, make_invite, make_user
 
 def test_invite_code_is_one_time(client):
     code = make_invite(client["admin"])
-    first = client["api"].post("/api/auth/register", json={
+    first = client["api"].post("/api/v1/auth/register", json={
         "invite_code": code,
         "email": "alice@example.com",
         "password": "SecurePass123!",
         "device_name": "PC-A",
     })
     assert first.status_code == 200, first.text
-    second = client["api"].post("/api/auth/register", json={
+    second = client["api"].post("/api/v1/auth/register", json={
         "invite_code": code,
         "email": "bob@example.com",
         "password": "SecurePass123!",
@@ -25,7 +25,7 @@ def test_invite_code_is_one_time(client):
 
 
 def test_register_rejects_invalid_invite(client):
-    resp = client["api"].post("/api/auth/register", json={
+    resp = client["api"].post("/api/v1/auth/register", json={
         "invite_code": "HOYO-NOTEXIST",
         "email": "eve@example.com",
         "password": "SecurePass123!",
@@ -54,18 +54,19 @@ def test_password_not_stored_in_plaintext(client):
 def test_duplicate_email_rejected(client):
     make_user(client, email="dup@example.com")
     invite = make_invite(client["admin"])
-    resp = client["api"].post("/api/auth/register", json={
+    resp = client["api"].post("/api/v1/auth/register", json={
         "invite_code": invite,
         "email": "DUP@example.com",
         "password": "SecurePass123!",
         "device_name": "PC",
     })
-    assert resp.status_code == 409
+    # 防止账号枚举：重复邮箱与通用注册失败返回相同状态码与文案
+    assert resp.status_code == 400
 
 
 def test_login_wrong_password(client):
     user = make_user(client)
-    resp = client["api"].post("/api/auth/login", json={
+    resp = client["api"].post("/api/v1/auth/login", json={
         "email": user["email"],
         "password": "WrongPass999!",
         "device_name": "PC-A",
@@ -76,7 +77,7 @@ def test_login_wrong_password(client):
 def test_sixth_device_rejected(client):
     user = make_user(client, device_name="device-1")
     for index in range(2, 7):
-        resp = client["api"].post("/api/auth/login", json={
+        resp = client["api"].post("/api/v1/auth/login", json={
             "email": user["email"],
             "password": user["password"],
             "device_name": f"device-{index}",
@@ -90,51 +91,51 @@ def test_sixth_device_rejected(client):
 def test_reuse_same_device_name_does_not_count(client):
     user = make_user(client, device_name="work-laptop")
     for _ in range(3):
-        resp = client["api"].post("/api/auth/login", json={
+        resp = client["api"].post("/api/v1/auth/login", json={
             "email": user["email"],
             "password": user["password"],
             "device_name": "work-laptop",
         })
         assert resp.status_code == 200
     # still only one device
-    me = client["api"].get("/api/auth/me", headers=auth_headers(user["access_token"]))
-    assert len(me.json()["devices"]) == 1
+    sessions = client["api"].get("/api/v1/sessions", headers=auth_headers(user["access_token"]))
+    assert len(sessions.json()) == 1
 
 
 def test_revoked_session_immediately_invalid(client):
     user = make_user(client, device_name="revocable")
-    me = client["api"].get("/api/auth/me", headers=auth_headers(user["access_token"]))
+    me = client["api"].get("/api/v1/me", headers=auth_headers(user["access_token"]))
     assert me.status_code == 200
     device_id = user["device_id"]
     resp = client["api"].delete(
-        f"/api/auth/devices/{device_id}",
+        f"/api/v1/sessions/{device_id}",
         headers=auth_headers(user["access_token"]),
     )
     assert resp.status_code == 204
     # same access token now rejected
-    after = client["api"].get("/api/auth/me", headers=auth_headers(user["access_token"]))
+    after = client["api"].get("/api/v1/me", headers=auth_headers(user["access_token"]))
     assert after.status_code == 401
 
 
 def test_logout_revokes_refresh_token(client):
     user = make_user(client)
-    resp = client["api"].post("/api/auth/logout", headers=auth_headers(user["access_token"]))
-    assert resp.status_code == 200
-    refresh = client["api"].post("/api/auth/refresh", json={"refresh_token": user["refresh_token"]})
+    resp = client["api"].post("/api/v1/auth/logout", headers=auth_headers(user["access_token"]))
+    assert resp.status_code == 204
+    refresh = client["api"].post("/api/v1/auth/refresh", json={"refresh_token": user["refresh_token"]})
     assert refresh.status_code == 401
 
 
 def test_refresh_rotation(client):
     user = make_user(client)
-    first = client["api"].post("/api/auth/refresh", json={"refresh_token": user["refresh_token"]})
+    first = client["api"].post("/api/v1/auth/refresh", json={"refresh_token": user["refresh_token"]})
     assert first.status_code == 200
     new_refresh = first.json()["refresh_token"]
     assert new_refresh != user["refresh_token"]
     # old refresh token no longer valid after rotation
-    old = client["api"].post("/api/auth/refresh", json={"refresh_token": user["refresh_token"]})
+    old = client["api"].post("/api/v1/auth/refresh", json={"refresh_token": user["refresh_token"]})
     assert old.status_code == 401
     # new one works
-    again = client["api"].post("/api/auth/refresh", json={"refresh_token": new_refresh})
+    again = client["api"].post("/api/v1/auth/refresh", json={"refresh_token": new_refresh})
     assert again.status_code == 200
 
 
@@ -142,7 +143,7 @@ def test_login_rate_limited(client):
     user = make_user(client)
     last = None
     for _ in range(15):
-        last = client["api"].post("/api/auth/login", json={
+        last = client["api"].post("/api/v1/auth/login", json={
             "email": user["email"],
             "password": "wrongpass",
             "device_name": "x",
@@ -151,13 +152,13 @@ def test_login_rate_limited(client):
 
 
 def test_me_requires_auth(client):
-    resp = client["api"].get("/api/auth/me")
+    resp = client["api"].get("/api/v1/me")
     assert resp.status_code == 401
 
 
 def test_register_rejects_short_password(client):
     invite = make_invite(client["admin"])
-    resp = client["api"].post("/api/auth/register", json={
+    resp = client["api"].post("/api/v1/auth/register", json={
         "invite_code": invite,
         "email": f"short-{secrets.token_hex(2)}@example.com",
         "password": "short",

@@ -2,7 +2,7 @@
 
 
 def test_health(client):
-    resp = client["api"].get("/api/health")
+    resp = client["api"].get("/healthz")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"

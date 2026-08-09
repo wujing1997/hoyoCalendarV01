@@ -30,21 +30,21 @@ else:
 "; }
 
 echo "== 1. 健康检查 =="
-HEALTH=$(curl -sf "$API/api/health")
+HEALTH=$(curl -sf "$API/healthz")
 echo "status=$(jget "$HEALTH" status)"
 
 echo "== 2. 管理员登录并生成邀请码 =="
-ADMIN_TOKEN=$(curl -sf -X POST "$ADMIN/api/admin/login" \
+ADMIN_TOKEN=$(curl -sf -X POST "$ADMIN/api/v1/admin/login" \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}" | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
-INVITE=$(curl -sf -X POST "$ADMIN/api/admin/invites" \
+INVITE=$(curl -sf -X POST "$ADMIN/api/v1/admin/invites" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"expires_days":7}' | python3 -c "import sys,json;print(json.load(sys.stdin)['code'])")
 echo "invite=$INVITE"
 
 echo "== 3. 注册 =="
 EMAIL="smoke-$(date +%s)@example.com"
-REG=$(curl -sf -X POST "$API/api/auth/register" \
+REG=$(curl -sf -X POST "$API/api/v1/auth/register" \
   -H 'Content-Type: application/json' \
   -d "{\"invite_code\":\"$INVITE\",\"email\":\"$EMAIL\",\"password\":\"SmokePass123!\",\"device_name\":\"smoke-pc\"}")
 TOKEN=$(echo "$REG" | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
@@ -53,35 +53,35 @@ echo "registered $EMAIL"
 echo "== 4. push 两条事件 =="
 EV1=$(python3 -c "import uuid;print(uuid.uuid4())")
 EV2=$(python3 -c "import uuid;print(uuid.uuid4())")
-curl -sf -X POST "$API/api/sync/push" \
+curl -sf -X POST "$API/api/v1/sync/push" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"changes\":[
-     {\"event_id\":\"$EV1\",\"version\":1,\"base_version\":0,\"operation_id\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"op\":\"upsert\",\"data\":{\"event\":\"冒烟测试\",\"date\":\"2026-08-10\"}},
-     {\"event_id\":\"$EV2\",\"version\":1,\"base_version\":0,\"operation_id\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"op\":\"upsert\",\"data\":{\"event\":\"另一条\",\"date\":\"2026-08-11\"}}
+     {\"eventId\":\"$EV1\",\"version\":1,\"baseVersion\":0,\"operationId\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"op\":\"upsert\",\"data\":{\"event\":\"冒烟测试\",\"date\":\"2026-08-10\"}},
+     {\"eventId\":\"$EV2\",\"version\":1,\"baseVersion\":0,\"operationId\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"op\":\"upsert\",\"data\":{\"event\":\"另一条\",\"date\":\"2026-08-11\"}}
    ]}" >/dev/null
 echo "pushed"
 
 echo "== 5. pull 校验 =="
-PULL=$(curl -sf "$API/api/sync/pull?cursor=0" -H "Authorization: Bearer $TOKEN")
+PULL=$(curl -sf "$API/api/v1/sync/pull?cursor=0" -H "Authorization: Bearer $TOKEN")
 COUNT=$(echo "$PULL" | python3 -c "import sys,json;print(len(json.load(sys.stdin)['events']))")
 echo "events=$COUNT"
 [ "$COUNT" = "2" ] || { echo "FAIL: expected 2 events, got $COUNT" >&2; exit 1; }
 
 echo "== 6. 版本冲突（不覆盖） =="
-R1=$(curl -sf -X POST "$API/api/sync/push" \
+R1=$(curl -sf -X POST "$API/api/v1/sync/push" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d "{\"changes\":[{\"event_id\":\"$EV1\",\"version\":2,\"base_version\":1,\"operation_id\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"op\":\"upsert\",\"data\":{\"event\":\"冒烟测试\",\"date\":\"2026-08-10\",\"time\":\"09:00\"}}]}")
+  -d "{\"changes\":[{\"eventId\":\"$EV1\",\"version\":2,\"baseVersion\":1,\"operationId\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"op\":\"upsert\",\"data\":{\"event\":\"冒烟测试\",\"date\":\"2026-08-10\",\"time\":\"09:00\"}}]}")
 S1=$(echo "$R1" | python3 -c "import sys,json;print(json.load(sys.stdin)['results'][0]['status'])")
 echo "first update: $S1"
-R2=$(curl -sf -X POST "$API/api/sync/push" \
+R2=$(curl -sf -X POST "$API/api/v1/sync/push" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d "{\"changes\":[{\"event_id\":\"$EV1\",\"version\":2,\"base_version\":1,\"operation_id\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"op\":\"upsert\",\"data\":{\"event\":\"冒烟测试\",\"date\":\"2026-08-10\",\"time\":\"12:00\"}}]}")
+  -d "{\"changes\":[{\"eventId\":\"$EV1\",\"version\":2,\"baseVersion\":1,\"operationId\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"op\":\"upsert\",\"data\":{\"event\":\"冒烟测试\",\"date\":\"2026-08-10\",\"time\":\"12:00\"}}]}")
 S2=$(echo "$R2" | python3 -c "import sys,json;print(json.load(sys.stdin)['results'][0]['status'])")
 echo "stale update: $S2"
 [ "$S2" = "conflict" ] || { echo "FAIL: expected conflict" >&2; exit 1; }
 
 echo "== 7. AI 未配置 =="
-AI_RESP=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/api/agent/plan" \
+AI_RESP=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/agent/plan" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"message":"创建明天的会议"}')
 echo "agent plan http=$AI_RESP (期望 503 未配置)"

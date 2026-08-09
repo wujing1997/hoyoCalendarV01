@@ -9,14 +9,14 @@ from .helpers import auth_headers, new_event_id, make_user, upsert_change
 
 def _push(client, user, changes):
     return client["api"].post(
-        "/api/sync/push",
+        "/api/v1/sync/push",
         json={"changes": changes},
         headers=auth_headers(user["access_token"]),
     )
 
 
 def _pull(client, user, cursor=None):
-    url = "/api/sync/pull"
+    url = "/api/v1/sync/pull"
     if cursor is not None:
         url += f"?cursor={cursor}"
     return client["api"].get(url, headers=auth_headers(user["access_token"]))
@@ -36,7 +36,7 @@ def test_push_then_pull_roundtrip(client):
     assert pulled.status_code == 200
     assert len(pulled.json()["events"]) == 1
     event = pulled.json()["events"][0]
-    assert event["event_id"] == event_id
+    assert event["eventId"] == event_id
     assert event["data"]["event"] == "项目评审"
     assert pulled.json()["cursor"] == pushed.json()["cursor"]
 
@@ -65,7 +65,7 @@ def test_incremental_cursor_only_returns_new_changes(client):
     pulled = _pull(client, user, cursor)
     events = pulled.json()["events"]
     assert len(events) == 1
-    assert events[0]["event_id"] == event_b
+    assert events[0]["eventId"] == event_b
 
 
 def test_conflict_returns_both_versions_and_does_not_overwrite(client):
@@ -83,11 +83,11 @@ def test_conflict_returns_both_versions_and_does_not_overwrite(client):
     resp = _push(client, user, [stale])
     result = resp.json()["results"][0]
     assert result["status"] == "conflict"
-    assert result["server_data"]["time"] == "10:00"
+    assert result["serverData"]["time"] == "10:00"
     assert result["data"]["time"] == "20:00"
     # server version unchanged
     pulled = _pull(client, user)
-    event = next(e for e in pulled.json()["events"] if e["event_id"] == event_id)
+    event = next(e for e in pulled.json()["events"] if e["eventId"] == event_id)
     assert event["data"]["time"] == "10:00"
     assert event["version"] == 2
 
@@ -111,19 +111,19 @@ def test_delete_restore_and_trash(client):
     assert deleted.json()["results"][0]["status"] == "applied"
     assert deleted.json()["results"][0]["deleted"] is True
 
-    trash = client["api"].get("/api/sync/trash", headers=auth_headers(user["access_token"]))
+    trash = client["api"].get("/api/v1/sync/trash", headers=auth_headers(user["access_token"]))
     assert trash.status_code == 200
     assert len(trash.json()["items"]) == 1
     assert trash.json()["items"][0]["data"]["note"] == "正文"
 
     restored = client["api"].post(
-        "/api/sync/restore",
-        json={"event_id": event_id},
+        "/api/v1/sync/restore",
+        json={"eventId": event_id},
         headers=auth_headers(user["access_token"]),
     )
     assert restored.status_code == 200, restored.text
     assert restored.json()["deleted"] is False
-    assert client["api"].get("/api/sync/trash", headers=auth_headers(user["access_token"])).json()["items"] == []
+    assert client["api"].get("/api/v1/sync/trash", headers=auth_headers(user["access_token"])).json()["items"] == []
 
 
 def test_delete_of_unknown_event_creates_tombstone(client):
@@ -213,7 +213,7 @@ def test_reconcile_when_cursor_behind_purge(client):
     db.close()
 
     pulled = _pull(client, user, cursor)
-    assert pulled.json()["reconcile_required"] is True
+    assert pulled.json()["reconcileRequired"] is True
 
 
 def test_user_isolation_pull_and_push(client):
@@ -239,10 +239,10 @@ def test_trash_is_user_scoped(client):
     event_id = new_event_id()
     _push(client, user_a, [upsert_change(event_id, 1, 0, {"event": "A的"})])
     _push(client, user_a, [upsert_change(event_id, 2, 1, None, op="delete")])
-    trash_b = client["api"].get("/api/sync/trash", headers=auth_headers(user_b["access_token"]))
+    trash_b = client["api"].get("/api/v1/sync/trash", headers=auth_headers(user_b["access_token"]))
     assert trash_b.json()["items"] == []
 
 
 def test_pull_without_auth_rejected(client):
-    resp = client["api"].get("/api/sync/pull")
+    resp = client["api"].get("/api/v1/sync/pull")
     assert resp.status_code == 401

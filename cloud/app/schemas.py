@@ -62,17 +62,17 @@ class UserProfile(BaseModel):
     status: str
     email_verified_at: Optional[datetime] = None
     created_at: datetime
-    devices: List[DeviceInfo] = []
 
 
 # --------------------------------------------------------------------------- sync
+# 同步协议字段名遵循权威方案 §7：operationId / eventId / baseVersion / op / data。
 
 
 class EventChange(BaseModel):
-    event_id: uuid.UUID
+    eventId: uuid.UUID
     version: int = Field(ge=0)
-    base_version: int = Field(ge=0, default=0)
-    operation_id: uuid.UUID
+    baseVersion: int = Field(ge=0, default=0)
+    operationId: uuid.UUID
     op: Literal["upsert", "delete"]
     data: Optional[Dict[str, Any]] = None
 
@@ -82,12 +82,12 @@ class PushRequest(BaseModel):
 
 
 class PushResultItem(BaseModel):
-    event_id: uuid.UUID
+    eventId: uuid.UUID
     status: Literal["applied", "conflict", "idempotent", "error"]
     version: int
-    server_version: Optional[int] = None
+    serverVersion: Optional[int] = None
     data: Optional[Dict[str, Any]] = None
-    server_data: Optional[Dict[str, Any]] = None
+    serverData: Optional[Dict[str, Any]] = None
     deleted: bool = False
     message: Optional[str] = None
 
@@ -98,31 +98,31 @@ class PushResponse(BaseModel):
 
 
 class CloudEvent(BaseModel):
-    event_id: uuid.UUID
+    eventId: uuid.UUID
     version: int
-    operation_id: uuid.UUID
+    operationId: uuid.UUID
     seq: int
     deleted: bool = False
-    trash_until: Optional[date] = None
+    trashUntil: Optional[date] = None
     data: Optional[Dict[str, Any]] = None
 
 
 class PullResponse(BaseModel):
     cursor: int
-    has_more: bool = False
-    reconcile_required: bool = False
+    hasMore: bool = False
+    reconcileRequired: bool = False
     events: List[CloudEvent] = []
 
 
 class RestoreRequest(BaseModel):
-    event_id: uuid.UUID
+    eventId: uuid.UUID
 
 
 class TrashItem(BaseModel):
-    event_id: uuid.UUID
+    eventId: uuid.UUID
     version: int
-    deleted_at: datetime
-    trash_until: date
+    deletedAt: datetime
+    trashUntil: date
     data: Optional[Dict[str, Any]] = None
 
 
@@ -184,12 +184,15 @@ class AdminTokenResponse(BaseModel):
 
 class InviteCreateRequest(BaseModel):
     expires_days: Optional[int] = Field(default=None, ge=1, le=365)
+    max_uses: int = Field(default=1, ge=1, le=100)
 
 
 class InviteView(BaseModel):
     id: int
     status: str
     expires_at: Optional[datetime] = None
+    max_uses: int = 1
+    use_count: int = 0
     used_by_user_id: Optional[uuid.UUID] = None
     created_at: datetime
     used_at: Optional[datetime] = None

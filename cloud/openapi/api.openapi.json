@@ -5,13 +5,13 @@
     "version": "0.1.0"
   },
   "paths": {
-    "/api/auth/register": {
+    "/api/v1/auth/register": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Register",
-        "operationId": "register_api_auth_register_post",
+        "operationId": "register_api_v1_auth_register_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -55,13 +55,13 @@
         }
       }
     },
-    "/api/auth/login": {
+    "/api/v1/auth/login": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Login",
-        "operationId": "login_api_auth_login_post",
+        "operationId": "login_api_v1_auth_login_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -105,13 +105,13 @@
         }
       }
     },
-    "/api/auth/refresh": {
+    "/api/v1/auth/refresh": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Refresh",
-        "operationId": "refresh_api_auth_refresh_post",
+        "operationId": "refresh_api_v1_auth_refresh_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -149,13 +149,13 @@
         }
       }
     },
-    "/api/auth/logout": {
+    "/api/v1/auth/logout": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Logout",
-        "operationId": "logout_api_auth_logout_post",
+        "operationId": "logout_api_v1_auth_logout_post",
         "parameters": [
           {
             "name": "authorization",
@@ -186,14 +186,6 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
           "204": {
             "description": "logged out"
           },
@@ -210,13 +202,13 @@
         }
       }
     },
-    "/api/auth/me": {
+    "/api/v1/me": {
       "get": {
         "tags": [
-          "auth"
+          "account"
         ],
         "summary": "Me",
-        "operationId": "me_api_auth_me_get",
+        "operationId": "me_api_v1_me_get",
         "parameters": [
           {
             "name": "authorization",
@@ -259,13 +251,13 @@
         }
       }
     },
-    "/api/auth/devices": {
+    "/api/v1/sessions": {
       "get": {
         "tags": [
-          "auth"
+          "account"
         ],
-        "summary": "Devices",
-        "operationId": "devices_api_auth_devices_get",
+        "summary": "Sessions",
+        "operationId": "sessions_api_v1_sessions_get",
         "parameters": [
           {
             "name": "authorization",
@@ -294,7 +286,7 @@
                   "items": {
                     "$ref": "#/components/schemas/DeviceInfo"
                   },
-                  "title": "Response Devices Api Auth Devices Get"
+                  "title": "Response Sessions Api V1 Sessions Get"
                 }
               }
             }
@@ -312,22 +304,22 @@
         }
       }
     },
-    "/api/auth/devices/{device_id}": {
+    "/api/v1/sessions/{session_id}": {
       "delete": {
         "tags": [
-          "auth"
+          "account"
         ],
-        "summary": "Revoke Device",
-        "operationId": "revoke_device_api_auth_devices__device_id__delete",
+        "summary": "Revoke Session",
+        "operationId": "revoke_session_api_v1_sessions__session_id__delete",
         "parameters": [
           {
-            "name": "device_id",
+            "name": "session_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Device Id"
+              "title": "Session Id"
             }
           },
           {
@@ -352,7 +344,7 @@
             "description": "revoked"
           },
           "404": {
-            "description": "device not found"
+            "description": "session not found"
           },
           "422": {
             "description": "Validation Error",
@@ -367,13 +359,13 @@
         }
       }
     },
-    "/api/sync/pull": {
+    "/api/v1/sync/pull": {
       "get": {
         "tags": [
           "sync"
         ],
         "summary": "Pull",
-        "operationId": "pull_api_sync_pull_get",
+        "operationId": "pull_api_v1_sync_pull_get",
         "parameters": [
           {
             "name": "cursor",
@@ -445,13 +437,13 @@
         }
       }
     },
-    "/api/sync/push": {
+    "/api/v1/sync/push": {
       "post": {
         "tags": [
           "sync"
         ],
         "summary": "Push",
-        "operationId": "push_api_sync_push_post",
+        "operationId": "push_api_v1_sync_push_post",
         "parameters": [
           {
             "name": "authorization",
@@ -504,13 +496,13 @@
         }
       }
     },
-    "/api/sync/trash": {
+    "/api/v1/sync/trash": {
       "get": {
         "tags": [
           "sync"
         ],
         "summary": "Trash",
-        "operationId": "trash_api_sync_trash_get",
+        "operationId": "trash_api_v1_sync_trash_get",
         "parameters": [
           {
             "name": "authorization",
@@ -553,13 +545,13 @@
         }
       }
     },
-    "/api/sync/restore": {
+    "/api/v1/sync/restore": {
       "post": {
         "tags": [
           "sync"
         ],
         "summary": "Restore",
-        "operationId": "restore_api_sync_restore_post",
+        "operationId": "restore_api_v1_sync_restore_post",
         "parameters": [
           {
             "name": "authorization",
@@ -612,13 +604,13 @@
         }
       }
     },
-    "/api/agent/plan": {
+    "/api/v1/agent/plan": {
       "post": {
         "tags": [
           "agent"
         ],
         "summary": "Plan",
-        "operationId": "plan_api_agent_plan_post",
+        "operationId": "plan_api_v1_agent_plan_post",
         "parameters": [
           {
             "name": "authorization",
@@ -680,13 +672,13 @@
         }
       }
     },
-    "/api/health": {
+    "/healthz": {
       "get": {
         "tags": [
           "health"
         ],
-        "summary": "Health",
-        "operationId": "health_api_health_get",
+        "summary": "Healthz",
+        "operationId": "healthz_healthz_get",
         "responses": {
           "200": {
             "description": "service healthy",
@@ -909,19 +901,19 @@
       },
       "CloudEvent": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           },
           "version": {
             "type": "integer",
             "title": "Version"
           },
-          "operation_id": {
+          "operationId": {
             "type": "string",
             "format": "uuid",
-            "title": "Operation Id"
+            "title": "Operationid"
           },
           "seq": {
             "type": "integer",
@@ -932,7 +924,7 @@
             "title": "Deleted",
             "default": false
           },
-          "trash_until": {
+          "trashUntil": {
             "anyOf": [
               {
                 "type": "string",
@@ -942,7 +934,7 @@
                 "type": "null"
               }
             ],
-            "title": "Trash Until"
+            "title": "Trashuntil"
           },
           "data": {
             "anyOf": [
@@ -959,9 +951,9 @@
         },
         "type": "object",
         "required": [
-          "event_id",
+          "eventId",
           "version",
-          "operation_id",
+          "operationId",
           "seq"
         ],
         "title": "CloudEvent"
@@ -1004,26 +996,26 @@
       },
       "EventChange": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           },
           "version": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Version"
           },
-          "base_version": {
+          "baseVersion": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Base Version",
+            "title": "Baseversion",
             "default": 0
           },
-          "operation_id": {
+          "operationId": {
             "type": "string",
             "format": "uuid",
-            "title": "Operation Id"
+            "title": "Operationid"
           },
           "op": {
             "type": "string",
@@ -1048,9 +1040,9 @@
         },
         "type": "object",
         "required": [
-          "event_id",
+          "eventId",
           "version",
-          "operation_id",
+          "operationId",
           "op"
         ],
         "title": "EventChange"
@@ -1102,14 +1094,14 @@
             "type": "integer",
             "title": "Cursor"
           },
-          "has_more": {
+          "hasMore": {
             "type": "boolean",
-            "title": "Has More",
+            "title": "Hasmore",
             "default": false
           },
-          "reconcile_required": {
+          "reconcileRequired": {
             "type": "boolean",
-            "title": "Reconcile Required",
+            "title": "Reconcilerequired",
             "default": false
           },
           "events": {
@@ -1167,10 +1159,10 @@
       },
       "PushResultItem": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           },
           "status": {
             "type": "string",
@@ -1186,7 +1178,7 @@
             "type": "integer",
             "title": "Version"
           },
-          "server_version": {
+          "serverVersion": {
             "anyOf": [
               {
                 "type": "integer"
@@ -1195,7 +1187,7 @@
                 "type": "null"
               }
             ],
-            "title": "Server Version"
+            "title": "Serverversion"
           },
           "data": {
             "anyOf": [
@@ -1209,7 +1201,7 @@
             ],
             "title": "Data"
           },
-          "server_data": {
+          "serverData": {
             "anyOf": [
               {
                 "additionalProperties": true,
@@ -1219,7 +1211,7 @@
                 "type": "null"
               }
             ],
-            "title": "Server Data"
+            "title": "Serverdata"
           },
           "deleted": {
             "type": "boolean",
@@ -1240,7 +1232,7 @@
         },
         "type": "object",
         "required": [
-          "event_id",
+          "eventId",
           "status",
           "version"
         ],
@@ -1298,15 +1290,15 @@
       },
       "RestoreRequest": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           }
         },
         "type": "object",
         "required": [
-          "event_id"
+          "eventId"
         ],
         "title": "RestoreRequest"
       },
@@ -1346,24 +1338,24 @@
       },
       "TrashItem": {
         "properties": {
-          "event_id": {
+          "eventId": {
             "type": "string",
             "format": "uuid",
-            "title": "Event Id"
+            "title": "Eventid"
           },
           "version": {
             "type": "integer",
             "title": "Version"
           },
-          "deleted_at": {
+          "deletedAt": {
             "type": "string",
             "format": "date-time",
-            "title": "Deleted At"
+            "title": "Deletedat"
           },
-          "trash_until": {
+          "trashUntil": {
             "type": "string",
             "format": "date",
-            "title": "Trash Until"
+            "title": "Trashuntil"
           },
           "data": {
             "anyOf": [
@@ -1380,10 +1372,10 @@
         },
         "type": "object",
         "required": [
-          "event_id",
+          "eventId",
           "version",
-          "deleted_at",
-          "trash_until"
+          "deletedAt",
+          "trashUntil"
         ],
         "title": "TrashItem"
       },
@@ -1432,14 +1424,6 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
-          },
-          "devices": {
-            "items": {
-              "$ref": "#/components/schemas/DeviceInfo"
-            },
-            "type": "array",
-            "title": "Devices",
-            "default": []
           }
         },
         "type": "object",

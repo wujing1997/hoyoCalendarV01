@@ -63,7 +63,11 @@ def _consume_invite(db: Session, code: str, user: models.User) -> None:
         raise AuthError(400, "邀请码已被使用或撤销")
     if invite.expires_at is not None and now > invite.expires_at:
         raise AuthError(400, "邀请码已过期")
-    invite.status = "used"
+    if invite.use_count >= invite.max_uses:
+        raise AuthError(400, "邀请码可用次数已用完")
+    invite.use_count += 1
+    if invite.use_count >= invite.max_uses:
+        invite.status = "used"
     invite.used_by_user_id = user.id
     invite.used_at = now
     db.add(invite)
@@ -75,7 +79,8 @@ def register(db: Session, invite_code: str, email: str, password: str, device_na
         select(models.User).where(models.User.email == email)
     ).scalar_one_or_none()
     if existing:
-        raise AuthError(409, "该邮箱已注册")
+        # 防止账号枚举（权威方案 §4）：与通用注册失败返回相同文案与状态码。
+        raise AuthError(400, "注册失败，请检查邀请码或稍后再试")
 
     user = models.User(
         email=email,
@@ -197,22 +202,11 @@ def active_device_count(db: Session, user_id: uuid.UUID) -> int:
     ).scalar() or 0
 
 
-def profile(db: Session, user: models.User, current_device_id: Optional[uuid.UUID]) -> dict:
-    devices = list_devices(db, user.id)
+def profile(db: Session, user: models.User) -> dict:
     return {
         "id": user.id,
         "email": user.email,
         "status": user.status,
         "email_verified_at": user.email_verified_at,
         "created_at": user.created_at,
-        "devices": [
-            {
-                "id": device.id,
-                "name": device.name,
-                "current": device.id == current_device_id,
-                "last_active_at": device.last_active_at,
-                "created_at": device.created_at,
-            }
-            for device in devices
-        ],
     }
