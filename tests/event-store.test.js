@@ -94,11 +94,13 @@ test('recurring completion only affects the selected date', () => {
 
 test('command router executes common creation and query locally', () => {
   withStore((store) => {
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const router = new CommandRouter(store);
-    const created = router.execute('8月10号前写完论文', '2026-07-30');
+    const created = router.execute('明天前写完论文', todayKey);
     assert.equal(created.route, 'local-create');
     assert.equal(created.success, true);
-    const query = router.execute('8月1号有什么安排吗', '2026-07-30');
+    const query = router.execute('今天有什么安排吗', todayKey);
     assert.equal(query.route, 'local-query');
     assert.equal(query.events.length, 1);
   });

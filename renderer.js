@@ -22,6 +22,9 @@
     assistantBusy: false,
     settingsConfig: {},
     editingProvider: 'doubao',
+    cloudState: null,
+    cloudAccount: null,
+    trashItems: { local: [], cloud: [] },
     windowState: {
       isPinned: false,
       isMaximized: false,
@@ -72,6 +75,12 @@
     return new Intl.DateTimeFormat('zh-CN', options).format(value);
   }
 
+  function safeFormatDate(value, options) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return formatDate(date, options);
+  }
+
   function escapeHtml(value = '') {
     return String(value)
       .replaceAll('&', '&amp;')
@@ -99,6 +108,48 @@
     return Boolean(window.eventAPI);
   }
 
+  const SYNC_STATUS_LABELS = {
+    'signed-out': '未登录',
+    synced: '已同步',
+    pending: '待同步',
+    offline: '离线',
+    conflict: '冲突',
+    error: '同步失败',
+  };
+
+  function renderSyncStatus() {
+    const pill = $('#syncStatusButton');
+    const label = $('#syncStatusLabel');
+    const icon = $('#syncStatusIcon');
+    const snapshot = state.cloudState;
+    const status = snapshot?.status || 'signed-out';
+    pill.classList.remove('synced', 'pending', 'offline', 'conflict', 'error');
+    pill.classList.add(status);
+    label.textContent = SYNC_STATUS_LABELS[status] || '未登录';
+    if (status === 'conflict') {
+      icon.outerHTML = `<i data-lucide="alert-triangle" id="syncStatusIcon"></i>`;
+    } else if (status === 'pending') {
+      icon.outerHTML = `<i data-lucide="refresh-cw" id="syncStatusIcon"></i>`;
+    } else if (status === 'offline') {
+      icon.outerHTML = `<i data-lucide="cloud-off" id="syncStatusIcon"></i>`;
+    } else {
+      icon.outerHTML = `<i data-lucide="cloud" id="syncStatusIcon"></i>`;
+    }
+    refreshIcons();
+  }
+
+  async function refreshTrashCount() {
+    if (!window.cloudAPI?.getTrash) return;
+    const result = await window.cloudAPI.getTrash();
+    state.trashItems = result || { local: [], cloud: [] };
+    const localIds = new Set(state.trashItems.local.map((event) => String(event._uuid)));
+    const cloudIds = new Set(state.trashItems.cloud.map((event) => String(event.eventId)));
+    let merged = new Set([...localIds, ...cloudIds]);
+    state.trashCount = merged.size;
+    const badge = $('#trashCount');
+    if (badge) badge.textContent = state.trashCount;
+  }
+
   function loadEvents() {
     state.events = apiAvailable() ? (window.eventAPI.loadEvents() || []) : [];
     if (
@@ -115,6 +166,12 @@
 
   function getSourceEvent(id) {
     return state.events.find((event) => String(event.id) === String(id)) || null;
+  }
+
+  function getSourceEventByAnyId(id) {
+    const direct = getSourceEvent(id);
+    if (direct) return direct;
+    return state.events.find((event) => String(event._uuid) === String(id)) || null;
   }
 
   function calendarIsVisible(event) {
@@ -1046,15 +1103,142 @@
     input.disabled = true;
     $('#assistantSend').disabled = true;
 
-    const result = await window.aiAPI?.chat(message, 'main');
+    const result = await window.aiAPI?.chat(message);
     $(`#${pendingId}`)?.remove();
-    appendAssistantMessage('assistant', result?.message || '没有收到有效回复。');
-    if (result?.events_changed) renderAll();
+
+    if (!result || result.error) {
+      appendAssistantMessage('assistant', result?.message || '日程助手暂不可用。');
+      state.assistantBusy = false;
+      input.disabled = false;
+      $('#assistantSend').disabled = false;
+      input.focus();
+      return;
+    }
+
+    const actions = Array.isArray(result.actions) ? result.actions : [];
+    if (!actions.length) {
+      appendAssistantMessage('assistant', result.message || '没有需要审批的操作。');
+      state.assistantBusy = false;
+      input.disabled = false;
+      $('#assistantSend').disabled = false;
+      input.focus();
+      return;
+    }
+
+    appendAssistantMessage('assistant', `${result.message}（${actions.length} 项候选操作）`);
+    appendActionApprovalCard(actions, result);
 
     state.assistantBusy = false;
     input.disabled = false;
     $('#assistantSend').disabled = false;
     input.focus();
+  }
+
+  function appendActionApprovalCard(actions, plan) {
+    const card = document.createElement('div');
+    card.className = 'approval-card';
+    card.innerHTML = `
+      <div class="approval-head">
+        <span>候选操作需要你确认后才能写入</span>
+        <label class="approval-select-all">
+          <input type="checkbox" class="approval-all-check" checked>
+          <span>全选</span>
+        </label>
+      </div>
+      <div class="approval-actions">
+        ${actions.map((action, index) => `
+          <label class="approval-action ${action.type}">
+            <input type="checkbox" class="approval-check" data-action-index="${index}" checked>
+            <span class="approval-type">${approvalTypeLabel(action)}</span>
+            <span class="approval-summary">${escapeHtml(approvalSummary(action))}</span>
+          </label>
+        `).join('')}
+      </div>
+      <div class="approval-buttons">
+        <button class="secondary-button approval-approve-all">一键同意</button>
+        <button class="primary-button approval-approve-selected">仅执行选中项</button>
+        <button class="text-btn danger approval-reject">全部拒绝</button>
+      </div>
+      <p class="approval-usage">${approvalUsageText(plan)}</p>
+    `;
+    $('#assistantBody').appendChild(card);
+    $('#assistantBody').scrollTop = $('#assistantBody').scrollHeight;
+
+    card.querySelector('.approval-all-check').addEventListener('change', (event) => {
+      card.querySelectorAll('.approval-check').forEach((check) => {
+        check.checked = event.target.checked;
+      });
+    });
+
+    const execute = (indices) => {
+      const results = window.cloudAPI.approveActions(actions, indices);
+      const done = results.filter((result) => result.success).length;
+      const failed = results.length - done;
+      card.classList.add('executed');
+      const summary = document.createElement('div');
+      summary.className = 'approval-result';
+      if (results.length) {
+        summary.textContent = `已执行 ${done} 项${failed ? `，${failed} 项失败` : ''}，其余已忽略。`;
+      } else {
+        summary.textContent = '已忽略全部候选操作，未写入任何日程。';
+      }
+      card.querySelector('.approval-buttons')?.remove();
+      card.appendChild(summary);
+      refreshIcons();
+      if (done) renderAll();
+    };
+
+    card.querySelector('.approval-approve-all').addEventListener('click', () => {
+      execute(new Set(actions.map((_action, index) => index)));
+    });
+    card.querySelector('.approval-approve-selected').addEventListener('click', () => {
+      const indices = new Set(
+        Array.from(card.querySelectorAll('.approval-check:checked')).map((check) => Number(check.dataset.actionIndex)),
+      );
+      execute(indices);
+    });
+    card.querySelector('.approval-reject').addEventListener('click', () => {
+      execute(new Set());
+    });
+    refreshIcons();
+  }
+
+  function approvalTypeLabel(action) {
+    if (action.type === 'create') return '新增';
+    if (action.type === 'update') return '修改';
+    if (action.type === 'delete') return '删除';
+    return action.type;
+  }
+
+  function approvalSummary(action) {
+    if (action.type === 'create') {
+      return `${action.event?.event || '新日程'}${action.event?.date ? ` · ${action.event.date}` : ''}${action.event?.time ? ` ${action.event.time}` : ''}`;
+    }
+    if (action.type === 'update') {
+      const title = getSourceEventByAnyId(action.id)?.event || '';
+      const updates = Object.entries(action.updates || {})
+        .filter(([key]) => !['updatedAt', 'createdAt'].includes(key))
+        .map(([key, value]) => `${key} → ${value}`)
+        .join('，');
+      return `${title}（${updates || '更新字段'}）`;
+    }
+    if (action.type === 'delete') {
+      return `${getSourceEventByAnyId(action.id)?.event || '日程'}（id: ${String(action.id).slice(0, 8)}…）`;
+    }
+    return '未知操作';
+  }
+
+  function approvalUsageText(plan) {
+    const usage = plan?.usage || {};
+    const parts = [];
+    if (usage.model) parts.push(usage.model);
+    if (usage.prompt_tokens || usage.completion_tokens) {
+      parts.push(`${usage.prompt_tokens || 0}/${usage.completion_tokens || 0} tokens`);
+    }
+    if (plan?.budget?.enabled) {
+      parts.push(`剩余预算 $${Number(plan.budget.remaining_usd || 0).toFixed(2)}`);
+    }
+    return parts.join(' · ');
   }
 
   async function checkAgentStatus() {
@@ -1065,9 +1249,346 @@
     const dot = $('#serviceDot');
     label.className = `status-label ${status === 'ready' && configured ? 'ready' : 'unavailable'}`;
     dot.className = `service-dot ${status === 'ready' && configured ? 'ready' : 'unavailable'}`;
-    if (status !== 'ready') label.textContent = '服务不可用';
-    else if (!configured) label.textContent = '尚未配置';
-    else label.textContent = `${result.provider || 'AI'} 已就绪`;
+    if (!state.cloudAccount) label.textContent = '登录后可用';
+    else if (status !== 'ready') label.textContent = '云端不可用';
+    else label.textContent = '云端已就绪';
+  }
+
+  async function openAccount() {
+    openOverlay('accountOverlay');
+    await renderAccount();
+  }
+
+  async function renderAccount() {
+    const container = $('#accountContent');
+    const account = state.cloudAccount;
+    const snapshot = state.cloudState;
+
+    if (!account) {
+      container.innerHTML = `
+        <div class="account-tabs">
+          <button class="account-tab active" data-account-tab="login">登录</button>
+          <button class="account-tab" data-account-tab="register">邀请码注册</button>
+        </div>
+        <form class="account-form" id="loginForm" data-account-form="login">
+          <label class="settings-field">
+            <span>邮箱</span>
+            <input type="email" name="email" autocomplete="email" placeholder="name@example.com" required>
+          </label>
+          <label class="settings-field">
+            <span>密码</span>
+            <input type="password" name="password" autocomplete="current-password" required>
+          </label>
+          <p class="account-error" id="accountError" hidden></p>
+          <button class="primary-button" type="submit">登录</button>
+        </form>
+        <form class="account-form hidden" id="registerForm" data-account-form="register">
+          <label class="settings-field">
+            <span>邀请码</span>
+            <input type="text" name="inviteCode" autocomplete="off" required>
+          </label>
+          <label class="settings-field">
+            <span>邮箱</span>
+            <input type="email" name="email" autocomplete="email" placeholder="name@example.com" required>
+          </label>
+          <label class="settings-field">
+            <span>密码（至少 8 位）</span>
+            <input type="password" name="password" minlength="8" autocomplete="new-password" required>
+          </label>
+          <p class="account-error" id="registerError" hidden></p>
+          <button class="primary-button" type="submit">注册并登录</button>
+        </form>
+        ${renderCloudServerSection(snapshot)}
+      `;
+      return;
+    }
+
+    const sessionsResult = await window.cloudAPI.getSessions();
+    const sessions = sessionsResult.ok ? sessionsResult.sessions : [];
+    container.innerHTML = `
+      <section class="account-section">
+        <div class="account-profile">
+          <div class="account-avatar">${escapeHtml(account.email.slice(0, 1).toUpperCase())}</div>
+          <div>
+            <strong>${escapeHtml(account.email)}</strong>
+            <small>已登录 · ${escapeHtml(snapshot?.serverUrl || '')}</small>
+          </div>
+        </div>
+        <button class="secondary-button danger" id="logoutButton">
+          <i data-lucide="log-out"></i><span>退出登录</span>
+        </button>
+      </section>
+
+      <section class="account-section">
+        <h2>设备（最多 5 台）</h2>
+        <div class="device-list" id="deviceList">
+          ${sessions.length ? sessions.map((device) => `
+            <div class="device-row">
+              <i data-lucide="${device.current ? 'laptop' : 'smartphone'}"></i>
+              <div class="device-info">
+                <strong>${escapeHtml(device.name)}${device.current ? ' <span class="device-current">当前</span>' : ''}</strong>
+                <small>最近活动：${safeFormatDate(device.last_active_at, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>
+              </div>
+              ${device.current ? '' : `
+                <button class="text-btn danger" data-revoke-device="${escapeHtml(device.id)}">撤销</button>
+              `}
+            </div>
+          `).join('') : '<div class="detail-empty">暂无设备信息</div>'}
+        </div>
+      </section>
+
+      <section class="account-section">
+        <h2>同步</h2>
+        <div class="sync-status-row">
+          <span class="sync-status-dot ${snapshot?.status || ''}"></span>
+          <span>${SYNC_STATUS_LABELS[snapshot?.status] || '未登录'}</span>
+          ${snapshot?.lastSyncAt ? `<small>上次同步 ${safeFormatDate(snapshot.lastSyncAt, { hour: '2-digit', minute: '2-digit' })}</small>` : ''}
+          <button class="secondary-button" id="syncNowButton">
+            <i data-lucide="refresh-cw"></i><span>立即同步</span>
+          </button>
+        </div>
+        ${snapshot?.lastError ? `<p class="account-error">${escapeHtml(snapshot.lastError)}</p>` : ''}
+        ${snapshot?.conflictCount ? `
+          <button class="text-btn danger" id="openConflictsButton">
+            ${icon('alert-triangle')} ${snapshot.conflictCount} 项冲突待处理
+          </button>
+        ` : ''}
+      </section>
+
+      <section class="account-section">
+        <h2>服务器</h2>
+        <label class="settings-field">
+          <span>云端服务器地址</span>
+          <input type="text" id="serverUrlInput" value="${escapeHtml(snapshot?.serverUrl || '')}" placeholder="http://127.0.0.1:8000">
+        </label>
+        <p class="field-hint">测试期可填写 SSH 隧道地址；正式部署后填写服务器 HTTPS 域名。</p>
+        <button class="secondary-button" id="saveServerUrlButton">保存服务器地址</button>
+      </section>
+    `;
+    refreshIcons();
+  }
+
+  function renderCloudServerSection(snapshot) {
+    return `
+      <section class="account-section">
+        <h2>服务器</h2>
+        <label class="settings-field">
+          <span>云端服务器地址</span>
+          <input type="text" id="serverUrlInput" value="${escapeHtml(snapshot?.serverUrl || '')}" placeholder="http://127.0.0.1:8000">
+        </label>
+        <p class="field-hint">测试期可填写 SSH 隧道地址；正式部署后填写服务器 HTTPS 域名。</p>
+        <button class="secondary-button" id="saveServerUrlButton">保存服务器地址</button>
+      </section>
+    `;
+  }
+
+  async function handleAccountForm(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = Object.fromEntries(new FormData(form).entries());
+    const errorElement = form.id === 'loginForm' ? $('#accountError') : $('#registerError');
+    const submitButton = form.querySelector('[type="submit"]');
+    errorElement.hidden = true;
+    submitButton.disabled = true;
+    submitButton.textContent = '处理中…';
+    try {
+      const result = form.id === 'loginForm'
+        ? await window.cloudAPI.login({ email: formData.email, password: formData.password })
+        : await window.cloudAPI.register({
+          inviteCode: formData.inviteCode,
+          email: formData.email,
+          password: formData.password,
+        });
+      if (!result.ok) {
+        errorElement.textContent = result.message || '操作失败，请重试';
+        errorElement.hidden = false;
+        return;
+      }
+      showToast(form.id === 'loginForm' ? '登录成功' : '注册成功');
+      await renderAccount();
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = form.id === 'loginForm' ? '登录' : '注册并登录';
+    }
+  }
+
+  async function openConflicts() {
+    if (!state.cloudState?.conflictCount) {
+      showToast('当前没有待处理的冲突');
+      return;
+    }
+    renderConflicts();
+    openOverlay('conflictOverlay');
+  }
+
+  function renderConflicts() {
+    const conflicts = window.cloudAPI.getConflicts() || [];
+    const container = $('#conflictContent');
+    if (!conflicts.length) {
+      container.innerHTML = '<div class="detail-empty">没有待处理的冲突</div>';
+      return;
+    }
+    container.innerHTML = conflicts.map((conflict) => {
+      const local = conflict.local || {};
+      const server = conflict.server || {};
+      return `
+        <article class="conflict-card" data-conflict-id="${escapeHtml(conflict.eventId)}">
+          <div class="conflict-title">${escapeHtml(local.event || server.event || '日程冲突')}</div>
+          <div class="conflict-versions">
+            <div class="conflict-version">
+              <span class="conflict-version-tag local">本机版本</span>
+              ${renderConflictEvent(local)}
+            </div>
+            <div class="conflict-version">
+              <span class="conflict-version-tag server">云端版本</span>
+              ${renderConflictEvent(server)}
+            </div>
+          </div>
+          <div class="conflict-actions">
+            <button class="secondary-button" data-conflict-choice="local">保留本机</button>
+            <button class="primary-button" data-conflict-choice="server">采用云端</button>
+          </div>
+        </article>
+      `;
+    }).join('');
+    refreshIcons();
+  }
+
+  function renderConflictEvent(event) {
+    if (!event || !Object.keys(event).length) {
+      return '<div class="detail-empty">（已删除）</div>';
+    }
+    const parts = [];
+    if (event.event) parts.push(`<strong>${escapeHtml(event.event)}</strong>`);
+    const meta = [];
+    if (event.date) meta.push(`日期 ${escapeHtml(event.date)}`);
+    if (event.time) meta.push(`时间 ${escapeHtml(event.time)}`);
+    if (event.isDeadline) meta.push('Deadline');
+    if (event.isRecurring) meta.push('重复任务');
+    if (event.location) meta.push(`地点 ${escapeHtml(event.location)}`);
+    if (event.note) meta.push(`备注 ${escapeHtml(event.note)}`);
+    return `<div class="conflict-event">${parts.join('')}${meta.length ? `<div class="conflict-meta">${meta.map(escapeHtml).join(' · ')}</div>` : ''}</div>`;
+  }
+
+  async function handleConflictChoice(button) {
+    const card = button.closest('[data-conflict-id]');
+    if (!card) return;
+    const eventId = card.dataset.conflictId;
+    const choice = button.dataset.conflictChoice;
+    const result = await window.cloudAPI.resolveConflict(eventId, choice);
+    if (!result.ok) {
+      showToast(result.message || '处理冲突失败');
+      return;
+    }
+    showToast(choice === 'local' ? '已保留本机版本' : '已采用云端版本');
+    renderAll();
+    renderConflicts();
+    if (!state.cloudState?.conflictCount) closeOverlay('conflictOverlay');
+  }
+
+  async function openTrash() {
+    await refreshTrashCount();
+    renderTrash();
+    openOverlay('trashOverlay');
+  }
+
+  function renderTrash() {
+    const container = $('#trashContent');
+    const localItems = state.trashItems.local || [];
+    const cloudItems = state.trashItems.cloud || [];
+    const rows = [];
+
+    const seen = new Set();
+    for (const item of localItems) {
+      const uuid = item._uuid;
+      const cloudMatch = cloudItems.find((cloud) => cloud.eventId === uuid);
+      const trashUntil = cloudMatch?.trashUntil || item._trashUntil;
+      seen.add(uuid);
+      rows.push({
+        id: item.id,
+        uuid,
+        title: item.event,
+        date: item.date,
+        time: item.time,
+        deletedAt: item._deletedAt,
+        trashUntil,
+      });
+    }
+    for (const item of cloudItems) {
+      if (seen.has(item.eventId)) continue;
+      rows.push({
+        id: null,
+        uuid: item.eventId,
+        title: item.data?.event || '未知日程',
+        date: item.data?.date || '',
+        time: item.data?.time || '',
+        deletedAt: item.deletedAt,
+        trashUntil: item.trashUntil,
+      });
+    }
+
+    if (!rows.length) {
+      container.innerHTML = '<div class="detail-empty">回收站是空的，删除的日程会保留 30 天。</div>';
+      return;
+    }
+    container.innerHTML = `
+      <p class="field-hint">回收站中的日程保留 30 天后自动清除，可随时恢复。</p>
+      <div class="trash-list">
+        ${rows.map((row) => `
+          <article class="trash-row">
+            <div class="trash-info">
+              <strong>${escapeHtml(row.title)}</strong>
+              <small>${escapeHtml([row.date, row.time].filter(Boolean).join(' ')) || '日期未知'}</small>
+            </div>
+            <span class="trash-until">${row.trashUntil ? `保留至 ${escapeHtml(row.trashUntil)}` : ''}</span>
+            <button class="text-btn" data-trash-restore="${escapeHtml(row.uuid)}" data-trash-id="${escapeHtml(row.id || '')}">
+              ${icon('undo-2')} 恢复
+            </button>
+          </article>
+        `).join('')}
+      </div>
+    `;
+    refreshIcons();
+  }
+
+  async function handleTrashRestore(button) {
+    const eventId = button.dataset.trashRestore;
+    const id = button.dataset.trashId || null;
+    button.disabled = true;
+    const result = await window.cloudAPI.restoreFromTrash(id, eventId);
+    button.disabled = false;
+    if (!result.ok) {
+      showToast('恢复失败');
+      return;
+    }
+    showToast('已恢复到日程');
+    await refreshTrashCount();
+    renderAll();
+    renderTrash();
+  }
+
+  function showMigrationSummary(summary) {
+    if (!summary) return;
+    const types = summary.types || {};
+    const container = $('#migrationContent');
+    container.innerHTML = `
+      <p class="migration-intro">本地数据已备份并完成迁移，以下是首次云端合并摘要：</p>
+      <div class="migration-stats">
+        <div class="migration-stat"><strong>${summary.uploaded}</strong><span>上传到云端</span></div>
+        <div class="migration-stat"><strong>${summary.downloaded}</strong><span>从云端下载</span></div>
+        <div class="migration-stat"><strong>${summary.merged}</strong><span>按 UUID 合并</span></div>
+        <div class="migration-stat ${summary.conflicts ? 'danger' : ''}"><strong>${summary.conflicts}</strong><span>冲突待处理</span></div>
+      </div>
+      <p class="field-hint">
+        共 ${summary.total || 0} 项本地日程：普通 ${types.normal || 0}、重复 ${types.recurring || 0}、
+        Deadline ${types.deadline || 0}、计时 ${types.timed || 0}。
+        ${summary.backupFile ? '原 events.json 已备份。' : ''}
+      </p>
+      ${summary.conflicts ? '<p class="field-hint">冲突项已保留本机与云端两版，请在“同步冲突”中处理。</p>' : ''}
+      <button class="primary-button" data-close-overlay="migrationOverlay">知道了</button>
+    `;
+    refreshIcons();
+    openOverlay('migrationOverlay');
   }
 
   function renderSearchResults(query = '') {
@@ -1208,6 +1729,11 @@
   }
 
   function handleNav(name) {
+    if (name === 'trash') {
+      setActiveNav('');
+      openTrash();
+      return;
+    }
     setActiveNav(name);
     if (name === 'today') {
       state.selectedDate = realToday;
@@ -1347,6 +1873,70 @@
     $('#composerAssistant').addEventListener('click', openAssistant);
 
     $('#searchButton').addEventListener('click', () => openOverlay('searchOverlay'));
+    $('#accountButton').addEventListener('click', openAccount);
+    $('#syncStatusButton').addEventListener('click', openAccount);
+    $('#accountContent').addEventListener('click', async (event) => {
+      const tab = event.target.closest('[data-account-tab]');
+      if (tab) {
+        $$('.account-tab', $('#accountContent')).forEach((button) => {
+          button.classList.toggle('active', button === tab);
+        });
+        $$('[data-account-form]', $('#accountContent')).forEach((form) => {
+          form.classList.toggle('hidden', form.dataset.accountForm !== tab.dataset.accountTab);
+        });
+        return;
+      }
+      if (event.target.closest('[data-revoke-device]')) {
+        const button = event.target.closest('[data-revoke-device]');
+        button.disabled = true;
+        const result = await window.cloudAPI.revokeSession(button.dataset.revokeDevice);
+        if (!result.ok) showToast(result.message || '撤销设备失败');
+        else showToast('设备已撤销');
+        await renderAccount();
+        return;
+      }
+      if (event.target.id === 'logoutButton') {
+        await window.cloudAPI.logout();
+        state.cloudAccount = null;
+        showToast('已退出登录');
+        await renderAccount();
+        renderSyncStatus();
+        return;
+      }
+      if (event.target.id === 'syncNowButton') {
+        const button = event.target;
+        button.disabled = true;
+        const result = await window.cloudAPI.syncNow();
+        button.disabled = false;
+        showToast(result.ok ? '同步完成' : (result.message || '同步失败'));
+        renderAccount();
+        return;
+      }
+      if (event.target.id === 'openConflictsButton') {
+        closeOverlay('accountOverlay');
+        openConflicts();
+        return;
+      }
+      if (event.target.id === 'saveServerUrlButton') {
+        const url = $('#serverUrlInput')?.value.trim();
+        if (!url) {
+          showToast('请输入服务器地址');
+          return;
+        }
+        window.cloudAPI.setServerUrl(url);
+        showToast('服务器地址已保存');
+        return;
+      }
+    });
+    $('#accountContent').addEventListener('submit', handleAccountForm);
+    $('#conflictContent').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-conflict-choice]');
+      if (button) handleConflictChoice(button);
+    });
+    $('#trashContent').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-trash-restore]');
+      if (button) handleTrashRestore(button);
+    });
     $('#searchInput').addEventListener('input', (event) => renderSearchResults(event.target.value));
     $('#searchResults').addEventListener('click', (event) => {
       const result = event.target.closest('[data-search-event]');
@@ -1476,6 +2066,10 @@
         closeOverlay('searchOverlay');
         closeOverlay('assistantOverlay');
         closeOverlay('settingsOverlay');
+        closeOverlay('accountOverlay');
+        closeOverlay('conflictOverlay');
+        closeOverlay('trashOverlay');
+        closeOverlay('migrationOverlay');
         closeMobileDetails();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
@@ -1513,6 +2107,38 @@
     $('#pinButton').setAttribute('aria-pressed', String(state.windowState.isPinned));
     await checkAgentStatus();
     setInterval(updateTimerReadouts, 1000);
+
+    if (window.cloudAPI) {
+      state.cloudState = window.cloudAPI.getState();
+      state.cloudAccount = state.cloudState?.account || null;
+      renderSyncStatus();
+      window.cloudAPI.subscribeState((snapshot) => {
+        state.cloudState = snapshot;
+        state.cloudAccount = snapshot.account || null;
+        renderSyncStatus();
+        if ($('#accountOverlay').classList.contains('open')) renderAccount();
+        if (snapshot.status === 'synced') refreshTrashCount();
+      });
+      window.cloudAPI.subscribeAccount((account) => {
+        state.cloudAccount = account;
+        renderSyncStatus();
+        checkAgentStatus();
+        if (account) refreshTrashCount();
+      });
+      window.cloudAPI.subscribeMigration((summary) => {
+        if (summary && summary.conflicts === undefined && summary.uploaded === undefined) return;
+        showMigrationSummary(summary);
+      });
+      window.addEventListener('online', () => {
+        window.cloudAPI?.syncNow();
+        refreshTrashCount();
+      });
+      window.addEventListener('offline', () => {
+        if (window.cloudAPI?.getState) state.cloudState = window.cloudAPI.getState();
+        renderSyncStatus();
+      });
+      refreshTrashCount();
+    }
   }
 
   initialize();

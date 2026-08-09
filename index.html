@@ -41,6 +41,13 @@
       </div>
 
       <div class="topbar-right">
+        <button class="sync-status-pill" id="syncStatusButton" title="云端同步状态" aria-label="云端同步状态">
+          <i data-lucide="cloud" id="syncStatusIcon"></i>
+          <span id="syncStatusLabel">未登录</span>
+        </button>
+        <button class="icon-btn" id="accountButton" title="账号与云端同步" aria-label="账号与云端同步">
+          <i data-lucide="user" id="accountIcon"></i>
+        </button>
         <button class="icon-btn top-search" id="searchButton" title="搜索日程" aria-label="搜索日程">
           <i data-lucide="search"></i>
         </button>
@@ -105,6 +112,11 @@
             <i data-lucide="list-todo"></i>
             <span>全部任务</span>
             <span class="nav-count" id="allCount">0</span>
+          </button>
+          <button class="nav-item" data-nav="trash">
+            <i data-lucide="trash-2"></i>
+            <span>回收站</span>
+            <span class="nav-count" id="trashCount">0</span>
           </button>
         </nav>
 
@@ -343,6 +355,68 @@
         </button>
       </header>
       <div id="mobileDetailsContent"></div>
+    </section>
+  </div>
+
+  <div class="overlay" id="accountOverlay" aria-hidden="true">
+    <section class="dialog account-dialog" role="dialog" aria-modal="true" aria-label="账号与云端同步">
+      <header class="dialog-head">
+        <div class="dialog-title">
+          <i data-lucide="cloud"></i>
+          <span>账号与云端同步</span>
+        </div>
+        <button class="icon-btn small" data-close-overlay="accountOverlay" title="关闭" aria-label="关闭账号设置">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="account-content" id="accountContent">
+        <div class="account-loading">加载中…</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="overlay" id="conflictOverlay" aria-hidden="true">
+    <section class="dialog conflict-dialog" role="dialog" aria-modal="true" aria-label="同步冲突">
+      <header class="dialog-head">
+        <div class="dialog-title">
+          <i data-lucide="alert-triangle"></i>
+          <span>同步冲突</span>
+        </div>
+        <button class="icon-btn small" data-close-overlay="conflictOverlay" title="关闭" aria-label="关闭冲突处理">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="conflict-content" id="conflictContent"></div>
+    </section>
+  </div>
+
+  <div class="overlay" id="trashOverlay" aria-hidden="true">
+    <section class="dialog trash-dialog" role="dialog" aria-modal="true" aria-label="回收站">
+      <header class="dialog-head">
+        <div class="dialog-title">
+          <i data-lucide="trash-2"></i>
+          <span>回收站</span>
+        </div>
+        <button class="icon-btn small" data-close-overlay="trashOverlay" title="关闭" aria-label="关闭回收站">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="trash-content" id="trashContent"></div>
+    </section>
+  </div>
+
+  <div class="overlay" id="migrationOverlay" aria-hidden="true">
+    <section class="dialog migration-dialog" role="dialog" aria-modal="true" aria-label="首次数据迁移摘要">
+      <header class="dialog-head">
+        <div class="dialog-title">
+          <i data-lucide="arrow-left-right"></i>
+          <span>首次云端迁移完成</span>
+        </div>
+        <button class="icon-btn small" data-close-overlay="migrationOverlay" title="关闭" aria-label="关闭迁移摘要">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="migration-content" id="migrationContent"></div>
     </section>
   </div>
 

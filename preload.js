@@ -5,6 +5,8 @@ const path = require('path');
 const http = require('http');
 const { EventStore } = require('./src/core/event-store');
 const { CommandRouter } = require('./src/core/command-router');
+const { CloudApi, CloudApiError } = require('./src/core/cloud-api');
+const { SyncEngine } = require('./src/core/sync-engine');
 
 let Lunar;
 let Solar;
@@ -74,42 +76,104 @@ function httpRequest(urlPath, method = 'GET', body = null, timeoutMs = 45000) {
   });
 }
 
-function compactAgentSnapshot(events) {
-  return events.slice(-1000).map((event) => ({
-    id: event.id,
-    event: event.event,
-    date: event.date,
-    time: event.time,
-    location: event.location,
-    urgency: event.urgency,
-    note: event.note,
-    calendar: event.calendar,
-    isCompleted: event.isCompleted,
-    isRecurring: event.isRecurring,
-    recurringType: event.recurringType,
-    recurringDays: event.recurringDays,
-    startDate: event.startDate,
-    endDate: event.endDate,
-    completedDates: event.completedDates,
-    isDeadline: event.isDeadline,
-    deadlineDate: event.deadlineDate,
-    isDeadlineCompleted: event.isDeadlineCompleted,
-    deadlineCompletedDate: event.deadlineCompletedDate,
-    targetDurationMinutes: event.targetDurationMinutes,
-  }));
+function friendlyCloudError(error) {
+  if (error instanceof CloudApiError) {
+    if (error.status === 401 || error.status === 403) return error.message || '请重新登录';
+    return error.message || '云端服务请求失败';
+  }
+  const code = String(error?.code || error?.message || '');
+  if (/ECONNREFUSED|request_timeout|ETIMEDOUT|ENOTFOUND/.test(code)) {
+    return '无法连接云端服务，请检查服务器地址或网络后重试。';
+  }
+  return '云端服务请求失败，请稍后重试。';
 }
 
-function friendlyBackendError(error) {
-  const code = String(error?.code || error?.message || '');
-  if (/ECONNREFUSED|backend_timeout|ETIMEDOUT/.test(code)) {
-    return 'AI 服务仍在启动或暂时不可用，本地日程功能不受影响。';
+const credentialStore = {
+  getRefreshToken: () => ipcRenderer.invoke('cloud-credential-get-refresh-token'),
+  setRefreshToken: (token) => ipcRenderer.invoke('cloud-credential-set-refresh-token', token),
+  clearRefreshToken: () => ipcRenderer.invoke('cloud-credential-clear'),
+};
+
+const cloudApi = new CloudApi({ baseUrl: 'http://127.0.0.1:8000', timeoutMs: 45000 });
+
+const syncEngine = new SyncEngine({
+  eventStore,
+  api: cloudApi,
+  dataDir,
+  credentialStore,
+  isOnline: () => (typeof navigator !== 'undefined' ? navigator.onLine !== false : true),
+  onStateChange: (snapshot) => {
+    if (typeof window !== 'undefined' && window.cloudStateSubscribers) {
+      window.cloudStateSubscribers.forEach((callback) => {
+        try {
+          callback(snapshot);
+        } catch (_) {
+          // Subscriber errors must not break the bridge.
+        }
+      });
+    }
+  },
+  onAccountChange: (account) => {
+    if (typeof window !== 'undefined' && window.accountSubscribers) {
+      window.accountSubscribers.forEach((callback) => {
+        try {
+          callback(account);
+        } catch (_) {
+          // Subscriber errors must not break the bridge.
+        }
+      });
+    }
+  },
+  onMigrationSummary: (summary) => {
+    if (typeof window !== 'undefined' && window.migrationSubscribers) {
+      window.migrationSubscribers.forEach((callback) => {
+        try {
+          callback(summary);
+        } catch (_) {
+          // Subscriber errors must not break the bridge.
+        }
+      });
+    }
+  },
+});
+
+async function loadCloudConfig() {
+  try {
+    const response = await httpRequest('/api/config', 'GET', null, 5000);
+    if (response.ok && response.data?.cloud?.serverUrl) {
+      syncEngine.setServerUrl(response.data.cloud.serverUrl);
+    }
+  } catch (_) {
+    // 本地配置服务不可用不影响云端功能
   }
-  return 'AI 服务请求失败，请检查设置后重试。';
+}
+
+async function saveCloudConfig() {
+  try {
+    const response = await httpRequest('/api/config', 'GET', null, 5000);
+    const config = response.ok && typeof response.data === 'object' ? response.data : {};
+    config.cloud ||= {};
+    config.cloud.serverUrl = syncEngine.getSnapshot().serverUrl;
+    await httpRequest('/api/config', 'PUT', config, 5000);
+  } catch (_) {
+    // 配置保存失败仅影响下次启动的默认地址
+  }
 }
 
 ipcRenderer.on('backend-ready', (_event, ready) => {
   backendStatus = ready ? 'ready' : 'unavailable';
 });
+
+async function initCloud() {
+  syncEngine.migrateLocalEvents();
+  await loadCloudConfig();
+  const restored = await syncEngine.restoreSession();
+  const deviceName = await ipcRenderer.invoke('cloud-device-name').catch(() => '未知设备');
+  syncEngine.deviceName = deviceName;
+  if (!restored) syncEngine.notify();
+}
+
+initCloud();
 
 contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
@@ -134,22 +198,70 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openLogsFolder: () => ipcRenderer.invoke('open-logs-folder'),
 });
 
+function notifyLocalChange(id, op) {
+  try {
+    syncEngine.noteLocalChange(id, op);
+  } catch (_) {
+    // 同步失败不影响本地写入
+  }
+}
+
 contextBridge.exposeInMainWorld('eventAPI', {
   loadEvents: () => eventStore.loadEvents(),
-  addEvent: (event) => eventStore.addEvent(event),
-  updateEvent: (id, updates) => eventStore.updateEvent(id, updates),
-  deleteEvent: (id) => eventStore.deleteEvent(id),
+  addEvent: (event) => {
+    const created = eventStore.addEvent(event);
+    if (created) notifyLocalChange(created.id, 'upsert');
+    return created;
+  },
+  updateEvent: (id, updates) => {
+    const updated = eventStore.updateEvent(id, updates);
+    if (updated) notifyLocalChange(id, 'upsert');
+    return updated;
+  },
+  deleteEvent: (id) => {
+    const removed = eventStore.deleteEvent(id);
+    if (removed) notifyLocalChange(id, 'delete');
+    return removed;
+  },
   getEvent: (id) => eventStore.getEvent(id),
   getEventsByDate: (date, options) => eventStore.getEventsByDate(date, options),
   getEventsBetween: (startDate, endDate) => eventStore.getEventsBetween(startDate, endDate),
   getTaskCounts: (startDate, endDate) => eventStore.getTaskCounts(startDate, endDate),
-  toggleComplete: (id, date) => eventStore.toggleComplete(id, date),
-  toggleRecurringDateComplete: (id, date) => eventStore.toggleComplete(id, date),
-  completeDeadlineEvent: (id, date) => eventStore.toggleComplete(id, date),
+  toggleComplete: (id, date) => {
+    const result = eventStore.toggleComplete(id, date);
+    if (result) notifyLocalChange(id, 'upsert');
+    return result;
+  },
+  toggleRecurringDateComplete: (id, date) => {
+    const result = eventStore.toggleComplete(id, date);
+    if (result) notifyLocalChange(id, 'upsert');
+    return result;
+  },
+  completeDeadlineEvent: (id, date) => {
+    const result = eventStore.toggleComplete(id, date);
+    if (result) notifyLocalChange(id, 'upsert');
+    return result;
+  },
   getTimerRecord: (id, date) => eventStore.getTimerRecord(id, date),
-  startTimer: (id, date) => eventStore.updateTimer(id, date, true),
-  stopTimer: (id, date) => eventStore.updateTimer(id, date, false),
-  applyActions: (actions) => eventStore.applyActions(actions),
+  startTimer: (id, date) => {
+    const result = eventStore.updateTimer(id, date, true);
+    if (result) notifyLocalChange(id, 'upsert');
+    return result;
+  },
+  stopTimer: (id, date) => {
+    const result = eventStore.updateTimer(id, date, false);
+    if (result) notifyLocalChange(id, 'upsert');
+    return result;
+  },
+  applyActions: (actions) => {
+    const results = eventStore.applyActions(actions);
+    for (const result of results) {
+      if (result.success && result.event?.id) {
+        notifyLocalChange(result.event.id, result.type === 'delete' ? 'delete' : 'upsert');
+      }
+    }
+    return results;
+  },
 });
 
 contextBridge.exposeInMainWorld('commandAPI', {
@@ -159,63 +271,148 @@ contextBridge.exposeInMainWorld('commandAPI', {
 
 contextBridge.exposeInMainWorld('aiAPI', {
   status: async () => {
-    try {
-      await backendPortReady;
-      const response = await httpRequest('/api/health', 'GET', null, 3000);
-      backendStatus = response.ok ? 'ready' : 'unavailable';
-      return {
-        status: backendStatus,
-        ...(response.data && typeof response.data === 'object' ? response.data : {}),
-      };
-    } catch (_) {
-      backendStatus = 'unavailable';
-      return { status: backendStatus, configured: false };
+    const snapshot = syncEngine.getSnapshot();
+    if (!snapshot.account) {
+      return { status: 'unavailable', configured: false, reason: 'signed_out' };
     }
+    const health = await cloudApi.health();
+    return {
+      status: health.ok ? 'ready' : 'unavailable',
+      configured: Boolean(snapshot.account),
+      online: snapshot.online,
+      serverUrl: snapshot.serverUrl,
+    };
   },
 
-  chat: async (message, sessionId = 'main') => {
+  chat: async (message) => {
     try {
-      await backendPortReady;
-      const response = await httpRequest('/api/agent/chat', 'POST', {
-        message,
-        session_id: sessionId,
-        today: eventStore.validDate(new Date()) || undefined,
-        events: compactAgentSnapshot(eventStore.loadEvents()),
-      }, 90000);
-      if (!response.ok) {
-        const detail = response.data?.message || response.data?.error;
-        throw new Error(detail || `backend_${response.status}`);
-      }
-
-      const actions = Array.isArray(response.data.actions) ? response.data.actions : [];
-      const actionResults = actions.length ? eventStore.applyActions(actions) : [];
-      const successfulActions = actionResults.filter((result) => result.success);
-      return {
-        ...response.data,
-        events_changed: successfulActions.length > 0,
-        action_results: actionResults,
-        created_count: successfulActions.filter((result) => result.type === 'create').length,
-        deleted_count: successfulActions.filter((result) => result.type === 'delete').length,
-      };
+      const today = eventStore.validDate(new Date()) || undefined;
+      return await syncEngine.agentPlan(message, today);
     } catch (error) {
-      console.error('[Preload] Agent request failed:', error.message);
+      console.error('[Preload] Cloud agent request failed:', error.message);
       return {
-        message: friendlyBackendError(error),
-        events_changed: false,
-        error_code: 'agent_unavailable',
+        message: friendlyCloudError(error),
+        actions: [],
+        usage: {},
+        budget: {},
+        configured: false,
+        error: true,
       };
     }
   },
 
-  resetChat: async (sessionId = 'main') => {
+  resetChat: async () => true,
+});
+
+contextBridge.exposeInMainWorld('cloudAPI', {
+  getState: () => syncEngine.getSnapshot(),
+  subscribeState: (callback) => {
+    window.cloudStateSubscribers ||= [];
+    window.cloudStateSubscribers.push(callback);
+    return () => {
+      window.cloudStateSubscribers = (window.cloudStateSubscribers || []).filter(
+        (item) => item !== callback,
+      );
+    };
+  },
+  subscribeAccount: (callback) => {
+    window.accountSubscribers ||= [];
+    window.accountSubscribers.push(callback);
+    return () => {
+      window.accountSubscribers = (window.accountSubscribers || []).filter(
+        (item) => item !== callback,
+      );
+    };
+  },
+  subscribeMigration: (callback) => {
+    window.migrationSubscribers ||= [];
+    window.migrationSubscribers.push(callback);
+    return () => {
+      window.migrationSubscribers = (window.migrationSubscribers || []).filter(
+        (item) => item !== callback,
+      );
+    };
+  },
+
+  restoreSession: () => syncEngine.restoreSession(),
+
+  login: async (credentials) => {
     try {
-      await backendPortReady;
-      await httpRequest('/api/agent/reset', 'POST', { session_id: sessionId }, 5000);
-      return true;
-    } catch (_) {
-      return false;
+      const deviceName = await ipcRenderer.invoke('cloud-device-name').catch(() => '未知设备');
+      await syncEngine.login({ ...credentials, deviceName });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: friendlyCloudError(error) };
     }
   },
+
+  register: async (credentials) => {
+    try {
+      const deviceName = await ipcRenderer.invoke('cloud-device-name').catch(() => '未知设备');
+      await syncEngine.register({ ...credentials, deviceName });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: friendlyCloudError(error) };
+    }
+  },
+
+  logout: async () => {
+    await syncEngine.signOut();
+    return { ok: true };
+  },
+
+  getSessions: async () => {
+    try {
+      return { ok: true, sessions: await cloudApi.sessions() };
+    } catch (error) {
+      return { ok: false, message: friendlyCloudError(error) };
+    }
+  },
+
+  revokeSession: async (sessionId) => {
+    try {
+      await cloudApi.revokeSession(sessionId);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: friendlyCloudError(error) };
+    }
+  },
+
+  setServerUrl: (url) => {
+    syncEngine.setServerUrl(url);
+    saveCloudConfig();
+    return syncEngine.getSnapshot().serverUrl;
+  },
+
+  syncNow: async () => {
+    try {
+      await syncEngine.syncNow();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: friendlyCloudError(error) };
+    }
+  },
+
+  getTrash: () => syncEngine.listTrash(),
+  restoreFromTrash: (id, eventId) => syncEngine.restoreFromTrash(id, eventId),
+  purgeTrash: () => syncEngine.purgeExpiredTrash(),
+
+  getConflicts: () => syncEngine.listConflicts(),
+  resolveConflict: async (eventId, choice) => {
+    await syncEngine.resolveConflict(eventId, choice);
+    return { ok: true };
+  },
+
+  agentPlan: async (message) => {
+    try {
+      const today = eventStore.validDate(new Date()) || undefined;
+      return { ok: true, ...(await syncEngine.agentPlan(message, today)) };
+    } catch (error) {
+      return { ok: false, message: friendlyCloudError(error) };
+    }
+  },
+
+  approveActions: (actions, selectedIndices) => syncEngine.approveActions(actions, selectedIndices),
 });
 
 contextBridge.exposeInMainWorld('configAPI', {

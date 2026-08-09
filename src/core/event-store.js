@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('crypto');
 const {
   addDays,
   daysBetween,
@@ -19,6 +20,10 @@ function asPositiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+function isInternalField(key) {
+  return key.startsWith('_');
+}
+
 class EventStore {
   constructor(options = {}) {
     const baseDir = options.dataDir
@@ -32,6 +37,35 @@ class EventStore {
   generateId() {
     this.idCounter += 1;
     return Date.now() * 1000 + this.idCounter;
+  }
+
+  generateUuid() {
+    return randomUUID();
+  }
+
+  markChanged(event) {
+    event._uuid = event._uuid || this.generateUuid();
+    event._version = (Number(event._version) || 0) + 1;
+    event._opId = this.generateUuid();
+    return event;
+  }
+
+  applyRemoteMeta(event, remote) {
+    if (remote.eventId) event._uuid = remote.eventId;
+    if (remote.operationId) event._opId = remote.operationId;
+    if (Number.isFinite(Number(remote.version))) {
+      event._version = Number(remote.version);
+      event._baseVersion = Number(remote.version);
+    }
+    return event;
+  }
+
+  sanitizeForSync(event) {
+    const output = {};
+    for (const [key, value] of Object.entries(event || {})) {
+      if (!isInternalField(key)) output[key] = value;
+    }
+    return output;
   }
 
   normalizeEvent(input) {
@@ -145,6 +179,20 @@ class EventStore {
       if (!fs.existsSync(this.eventsFile)) return [];
       const parsed = JSON.parse(fs.readFileSync(this.eventsFile, 'utf8'));
       if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((event) => this.normalizeEvent(event))
+        .filter((event) => !event._deleted);
+    } catch (error) {
+      console.error('[EventStore] Failed to load events:', error);
+      return [];
+    }
+  }
+
+  loadAllEvents() {
+    try {
+      if (!fs.existsSync(this.eventsFile)) return [];
+      const parsed = JSON.parse(fs.readFileSync(this.eventsFile, 'utf8'));
+      if (!Array.isArray(parsed)) return [];
       return parsed.map((event) => this.normalizeEvent(event));
     } catch (error) {
       console.error('[EventStore] Failed to load events:', error);
@@ -172,21 +220,35 @@ class EventStore {
   }
 
   addEvent(input) {
-    const events = this.loadEvents();
+    const events = this.loadAllEvents();
     const now = new Date().toISOString();
-    const event = this.normalizeEvent({
+
+    if (input?.id !== undefined) {
+      const trashedIndex = events.findIndex(
+        (event) => String(event.id) === String(input.id) && event._deleted,
+      );
+      if (trashedIndex >= 0) {
+        const restored = this.restoreFromTrash(input.id);
+        if (restored) return clone(restored);
+      }
+    }
+
+    const draft = {
       ...input,
       id: input?.id ?? this.generateId(),
       createdAt: input?.createdAt || now,
       updatedAt: now,
-    });
+    };
+    if (input?.id === undefined) delete draft._uuid;
+    const event = this.normalizeEvent(draft);
+    this.markChanged(event);
     events.push(event);
     return this.saveEvents(events) ? clone(event) : null;
   }
 
   updateEvent(id, updates) {
-    const events = this.loadEvents();
-    const index = events.findIndex((event) => String(event.id) === String(id));
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && !event._deleted);
     if (index < 0) return null;
     const next = this.normalizeEvent({
       ...events[index],
@@ -195,21 +257,159 @@ class EventStore {
       createdAt: events[index].createdAt,
       updatedAt: new Date().toISOString(),
     });
+    this.markChanged(next);
     events[index] = next;
     return this.saveEvents(events) ? clone(next) : null;
   }
 
   deleteEvent(id) {
-    const events = this.loadEvents();
-    const index = events.findIndex((event) => String(event.id) === String(id));
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && !event._deleted);
     if (index < 0) return null;
-    const [removed] = events.splice(index, 1);
-    return this.saveEvents(events) ? clone(removed) : null;
+    const now = new Date().toISOString();
+    const event = events[index];
+    event._deleted = true;
+    event._deletedAt = now;
+    const trashUntil = new Date();
+    trashUntil.setDate(trashUntil.getDate() + 30);
+    event._trashUntil = formatDate(trashUntil);
+    this.markChanged(event);
+    events[index] = event;
+    return this.saveEvents(events) ? clone(event) : null;
   }
 
   getEvent(id) {
     const event = this.loadEvents().find((item) => String(item.id) === String(id));
     return event ? clone(event) : null;
+  }
+
+  getAnyEvent(id) {
+    const event = this.loadAllEvents().find((item) => String(item.id) === String(id));
+    return event ? clone(event) : null;
+  }
+
+  findEventByUuid(uuid) {
+    const event = this.loadAllEvents().find((item) => item._uuid === uuid);
+    return event ? clone(event) : null;
+  }
+
+  listTrash() {
+    return this.loadAllEvents()
+      .filter((event) => event._deleted)
+      .sort((left, right) => String(right._deletedAt || '').localeCompare(String(left._deletedAt || '')));
+  }
+
+  restoreFromTrash(id) {
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && event._deleted);
+    if (index < 0) return null;
+    const event = events[index];
+    event._deleted = false;
+    delete event._deletedAt;
+    delete event._trashUntil;
+    this.markChanged(event);
+    events[index] = event;
+    return this.saveEvents(events) ? clone(event) : null;
+  }
+
+  purgeTrash(referenceDate = new Date()) {
+    const referenceKey = formatDate(referenceDate);
+    const events = this.loadAllEvents();
+    const kept = events.filter((event) => {
+      if (!event._deleted) return true;
+      return event._trashUntil && event._trashUntil >= referenceKey;
+    });
+    const purged = events.length - kept.length;
+    if (purged > 0) this.saveEvents(kept);
+    return purged;
+  }
+
+  removeEventPermanently(id) {
+    const events = this.loadAllEvents();
+    const kept = events.filter((event) => String(event.id) !== String(id));
+    if (kept.length === events.length) return false;
+    return this.saveEvents(kept);
+  }
+
+  applyRemoteEvent(eventId, data, version, operationId) {    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => event._uuid === eventId);
+    const now = new Date().toISOString();
+    if (index >= 0) {
+      const next = this.normalizeEvent({
+        ...events[index],
+        ...clone(data || {}),
+        id: events[index].id,
+        createdAt: events[index].createdAt,
+        updatedAt: now,
+      });
+      this.applyRemoteMeta(next, { eventId, version, operationId });
+      next._deleted = false;
+      delete next._deletedAt;
+      delete next._trashUntil;
+      events[index] = next;
+      return this.saveEvents(events) ? clone(next) : null;
+    }
+    const created = this.normalizeEvent({
+      ...clone(data || {}),
+      id: this.generateId(),
+      createdAt: now,
+      updatedAt: now,
+    });
+    this.applyRemoteMeta(created, { eventId, version, operationId });
+    created._baseVersion = Number(version) || 0;
+    events.push(created);
+    return this.saveEvents(events) ? clone(created) : null;
+  }
+
+  ensureSyncMetadata() {
+    const events = this.loadAllEvents();
+    let assigned = 0;
+    let changed = false;
+    for (const event of events) {
+      if (!event._uuid) {
+        event._uuid = this.generateUuid();
+        assigned += 1;
+      }
+      if (!Number.isFinite(Number(event._version))) {
+        event._version = 1;
+        event._opId = this.generateUuid();
+        event._baseVersion = 0;
+        changed = true;
+      }
+    }
+    if (changed) this.saveEvents(events);
+    return { total: events.length, assignedUuids: assigned };
+  }
+
+  snapshotForAgent(limit = 500) {
+    const events = this.loadEvents().slice(-limit);
+    return events.map((event) => {
+      const sanitized = this.sanitizeForSync(event);
+      return {
+        id: event._uuid,
+        ...sanitized,
+      };
+    });
+  }
+
+  applySyncAck(eventId, version, operationId) {
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => event._uuid === eventId);
+    if (index < 0) return null;
+    this.applyRemoteMeta(events[index], { eventId, version, operationId });
+    return this.saveEvents(events) ? clone(events[index]) : null;
+  }
+
+  markTrashedFromRemote(eventId, trashUntil) {
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => event._uuid === eventId);
+    if (index < 0) return null;
+    const event = events[index];
+    event._deleted = true;
+    event._deletedAt = new Date().toISOString();
+    event._trashUntil = trashUntil || formatDate(new Date());
+    events[index] = event;
+    return this.saveEvents(events) ? clone(event) : null;
   }
 
   isRecurringOnDate(event, dateStr) {
@@ -347,8 +547,8 @@ class EventStore {
 
   toggleComplete(id, dateStr) {
     const date = this.validDate(dateStr) || formatDate(new Date());
-    const events = this.loadEvents();
-    const index = events.findIndex((event) => String(event.id) === String(id));
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && !event._deleted);
     if (index < 0) return null;
     const event = events[index];
     const now = new Date().toISOString();
@@ -381,6 +581,7 @@ class EventStore {
     }
 
     event.updatedAt = now;
+    this.markChanged(event);
     events[index] = this.normalizeEvent(event);
     return this.saveEvents(events) ? this.instanceForDate(events[index], date) : null;
   }
@@ -392,8 +593,8 @@ class EventStore {
   }
 
   updateTimer(id, dateStr, shouldRun) {
-    const events = this.loadEvents();
-    const index = events.findIndex((event) => String(event.id) === String(id));
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && !event._deleted);
     if (index < 0) return null;
     const event = events[index];
     event.timerRecords ||= {};
@@ -412,12 +613,13 @@ class EventStore {
 
     event.timerRecords[dateStr] = record;
     event.updatedAt = new Date().toISOString();
+    this.markChanged(event);
     events[index] = this.normalizeEvent(event);
     return this.saveEvents(events) ? clone(record) : null;
   }
 
   applyActions(actions) {
-    const events = this.loadEvents();
+    const events = this.loadAllEvents().filter((event) => !event._deleted);
     const results = [];
     const now = new Date().toISOString();
 
@@ -429,6 +631,8 @@ class EventStore {
           createdAt: now,
           updatedAt: now,
         });
+        delete created._uuid;
+        this.markChanged(created);
         events.push(created);
         results.push({ type: 'create', success: true, event: clone(created) });
         continue;
@@ -448,11 +652,19 @@ class EventStore {
           createdAt: events[index].createdAt,
           updatedAt: now,
         });
+        this.markChanged(updated);
         events[index] = updated;
         results.push({ type: 'update', success: true, event: clone(updated) });
       } else if (action.type === 'delete') {
-        const [removed] = events.splice(index, 1);
-        results.push({ type: 'delete', success: true, event: clone(removed) });
+        const target = events[index];
+        target._deleted = true;
+        target._deletedAt = now;
+        const trashUntil = new Date();
+        trashUntil.setDate(trashUntil.getDate() + 30);
+        target._trashUntil = formatDate(trashUntil);
+        this.markChanged(target);
+        events[index] = target;
+        results.push({ type: 'delete', success: true, event: clone(target) });
       }
     }
 

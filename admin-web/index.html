@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>HoYoCalendar 管理后台</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">H</span>
+        <strong>HoYoCalendar 管理后台</strong>
+      </div>
+      <div class="topbar-right" id="topbarRight" hidden>
+        <span class="admin-user" id="adminUser"></span>
+        <button class="btn ghost" id="logoutButton">退出</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel login-panel" id="loginPanel">
+        <form class="login-form" id="loginForm">
+          <h1>管理员登录</h1>
+          <p class="hint">仅可通过 SSH 隧道在本机访问。</p>
+          <label class="field">
+            <span>用户名</span>
+            <input type="text" name="username" autocomplete="username" required>
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input type="password" name="password" autocomplete="current-password" required>
+          </label>
+          <p class="error" id="loginError" hidden></p>
+          <button class="btn primary" type="submit">登录</button>
+        </form>
+      </section>
+
+      <section class="app" id="appPanel" hidden>
+        <nav class="tabs">
+          <button class="tab active" data-tab="invites">邀请码</button>
+          <button class="tab" data-tab="users">用户</button>
+          <button class="tab" data-tab="usage">AI 用量</button>
+          <button class="tab" data-tab="settings">设置</button>
+          <button class="tab" data-tab="audit">审计</button>
+        </nav>
+        <p class="error global" id="globalError" hidden></p>
+
+        <section class="tab-panel" id="panel-invites">
+          <div class="panel-head">
+            <h2>邀请码</h2>
+            <button class="btn primary" id="createInviteButton">生成邀请码</button>
+          </div>
+          <div class="invite-create" id="inviteCreate" hidden>
+            <label class="field inline">
+              <span>可用次数</span>
+              <input type="number" id="inviteMaxUses" min="1" max="99" value="1">
+            </label>
+            <label class="field inline">
+              <span>有效天数</span>
+              <input type="number" id="inviteExpiresDays" min="1" max="365" value="30">
+            </label>
+            <button class="btn" id="inviteCreateConfirm">生成</button>
+          </div>
+          <div class="invite-result" id="inviteResult" hidden>
+            <p>新邀请码（仅显示一次）：</p>
+            <code id="inviteCodeText"></code>
+            <button class="btn ghost" id="inviteCopy">复制</button>
+          </div>
+          <table class="table" id="inviteTable">
+            <thead>
+              <tr><th>ID</th><th>状态</th><th>次数</th><th>有效期至</th><th>使用人</th><th>创建时间</th><th>操作</th></tr>
+            </thead>
+            <tbody id="inviteTableBody"></tbody>
+          </table>
+        </section>
+
+        <section class="tab-panel" id="panel-users" hidden>
+          <div class="panel-head">
+            <h2>用户</h2>
+          </div>
+          <table class="table" id="userTable">
+            <thead>
+              <tr><th>邮箱</th><th>状态</th><th>设备数</th><th>注册时间</th><th>操作</th></tr>
+            </thead>
+            <tbody id="userTableBody"></tbody>
+          </table>
+        </section>
+
+        <section class="tab-panel" id="panel-usage" hidden>
+          <div class="panel-head">
+            <h2>AI 用量（脱敏）</h2>
+            <label class="field inline small">
+              <span>统计天数</span>
+              <select id="usageDays">
+                <option value="7">7</option>
+                <option value="30" selected>30</option>
+                <option value="90">90</option>
+              </select>
+            </label>
+          </div>
+          <div class="stat-cards" id="usageStats"></div>
+          <h3>按日</h3>
+          <table class="table">
+            <thead><tr><th>日期</th><th>请求数</th><th>输入 tokens</th><th>输出 tokens</th><th>估算费用(USD)</th></tr></thead>
+            <tbody id="usageDayBody"></tbody>
+          </table>
+          <h3>按用户</h3>
+          <table class="table">
+            <thead><tr><th>邮箱</th><th>请求数</th><th>估算费用(USD)</th></tr></thead>
+            <tbody id="usageUserBody"></tbody>
+          </table>
+        </section>
+
+        <section class="tab-panel" id="panel-settings" hidden>
+          <div class="panel-head">
+            <h2>全局设置</h2>
+          </div>
+          <form class="settings-form" id="settingsForm">
+            <label class="field row">
+              <span>
+                <strong>AI 总开关</strong>
+                <small>关闭后仅暂停 AI 调用，认证、日历与同步不受影响</small>
+              </span>
+              <input type="checkbox" id="aiEnabled">
+            </label>
+            <label class="field">
+              <span>全局月度预算上限（USD，0 表示不限）</span>
+              <input type="number" id="aiBudget" min="0" step="0.1">
+            </label>
+            <button class="btn primary" type="submit">保存设置</button>
+          </form>
+        </section>
+
+        <section class="tab-panel" id="panel-audit" hidden>
+          <div class="panel-head">
+            <h2>审计日志</h2>
+            <label class="field inline small">
+              <span>条数</span>
+              <select id="auditLimit">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+              </select>
+            </label>
+          </div>
+          <table class="table">
+            <thead><tr><th>时间</th><th>操作者</th><th>操作</th><th>对象类型</th><th>对象 ID</th></tr></thead>
+            <tbody id="auditBody"></tbody>
+          </table>
+        </section>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

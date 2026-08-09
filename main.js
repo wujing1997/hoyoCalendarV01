@@ -5,11 +5,13 @@ const {
   BrowserWindow,
   ipcMain,
   shell,
+  safeStorage,
 } = require('electron');
 const { spawn, spawnSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const net = require('net');
+const os = require('os');
 const path = require('path');
 
 const allowMultipleInstances = process.env.HOYO_ALLOW_MULTIPLE_INSTANCES === '1';
@@ -365,6 +367,63 @@ ipcMain.handle('set-auto-launch', (_event, enabled) => {
   app.setLoginItemSettings({ openAtLogin: Boolean(enabled), path: process.execPath });
   return app.getLoginItemSettings().openAtLogin;
 });
+
+const credentialFile = path.join(app.getPath('userData'), 'cloud-credentials.bin');
+
+function credentialStorageAvailable() {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch (_) {
+    return false;
+  }
+}
+
+ipcMain.handle('cloud-credential-get-refresh-token', async () => {
+  try {
+    if (!fs.existsSync(credentialFile)) return null;
+    const raw = fs.readFileSync(credentialFile);
+    if (credentialStorageAvailable()) {
+      return safeStorage.decryptString(raw);
+    }
+    return raw.toString('utf8');
+  } catch (error) {
+    logError('Failed to read cloud credentials', error);
+    return null;
+  }
+});
+
+ipcMain.handle('cloud-credential-set-refresh-token', async (_event, token) => {
+  try {
+    if (!token) {
+      if (fs.existsSync(credentialFile)) fs.unlinkSync(credentialFile);
+      return true;
+    }
+    let payload;
+    if (credentialStorageAvailable()) {
+      payload = safeStorage.encryptString(String(token));
+    } else {
+      payload = Buffer.from(String(token), 'utf8');
+      log('safeStorage unavailable, cloud refresh token stored with OS file permissions only');
+    }
+    fs.writeFileSync(credentialFile, payload, { mode: 0o600 });
+    return true;
+  } catch (error) {
+    logError('Failed to store cloud credentials', error);
+    return false;
+  }
+});
+
+ipcMain.handle('cloud-credential-clear', async () => {
+  try {
+    if (fs.existsSync(credentialFile)) fs.unlinkSync(credentialFile);
+    return true;
+  } catch (error) {
+    logError('Failed to clear cloud credentials', error);
+    return false;
+  }
+});
+
+ipcMain.handle('cloud-device-name', () => os.hostname() || '未知设备');
 
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
 ipcMain.on('window-close', () => mainWindow?.close());
