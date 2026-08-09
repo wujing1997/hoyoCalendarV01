@@ -1,0 +1,25 @@
+# HoYoCalendar Admin Web (管理后台前端) — systemd unit
+# 仅绑定 127.0.0.1:8080，静态资源同源服务，将 /api/* 反向代理到 127.0.0.1:8001。
+# 权威来源：admin-web/（PR #2 提交 f8e0b892c73a774b78fe3f4aface3f3eed18b566）
+# 安装：sudo cp hoyocalendar-admin-web.service /etc/systemd/system/
+#       sudo systemctl daemon-reload && sudo systemctl enable --now hoyocalendar-admin-web
+[Unit]
+Description=HoYoCalendar Admin Web (loopback only, proxy to :8001)
+After=network.target hoyocalendar-admin.service
+Wants=hoyocalendar-admin.service
+
+[Service]
+Type=simple
+User=hoyo
+Group=hoyo
+WorkingDirectory=/opt/hoyocalendar/admin-web
+# server.py 仅接受 --port / --api-port 参数，固定绑定 127.0.0.1
+ExecStart=/usr/bin/python3 /opt/hoyocalendar/admin-web/server.py --port 8080 --api-port 8001
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

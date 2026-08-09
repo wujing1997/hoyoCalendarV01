@@ -1,5 +1,13 @@
 # HoYoCalendar 云端后端 — 部署与回退说明
 
+> **管理后台（admin-web）权威来源（2026-08-09 HOY-12 确认）：**
+> - 权威源码：仓库根目录 `admin-web/`（PR #2 分支 `agent/agent/ef3ad0c0`）
+> - 权威提交 SHA：`f8e0b892c73a774b78fe3f4aface3f3eed18b566`
+> - 服务器部署目录：`/opt/hoyocalendar/admin-web/`（与仓库 `admin-web/` 逐字节一致）
+> - 服务名：`hoyocalendar-admin-web.service`（systemd，`hoyo` 用户）
+> - 仅监听 `127.0.0.1:8080`，`/api/*` 代理到 `127.0.0.1:8001`（Admin API）
+> - 升级/回退步骤见下文「管理后台 admin-web 运维与回退」。
+
 部署目标：用户 SSH 配置中的腾讯云服务器（当前即后端部署智能体运行的主机，
 内网 `10.0.0.15`）。当前为**受邀测试环境**，按用户确认的测试期限制执行。
 
@@ -123,6 +131,55 @@ curl -s -X POST http://127.0.0.1:8001/api/v1/admin/invites \
    ```bash
    sudo -u postgres pg_dump -U hoyo hoyocalendar -Fc -f /opt/hoyocalendar/backup.dump
    ```
+
+## 管理后台 admin-web 部署（权威版）
+
+权威源码为仓库根目录 `admin-web/`（PR #2 分支 `agent/agent/ef3ad0c0`，
+提交 `f8e0b892c73a774b78fe3f4aface3f3eed18b566`），以 systemd 服务
+`hoyocalendar-admin-web.service` 运行，仅监听 `127.0.0.1:8080` 并代理到
+`127.0.0.1:8001`，必须通过 SSH 隧道访问。
+
+```bash
+# 1. 同步权威文件（替换前先备份，见下）
+sudo -u hoyo rsync -a --exclude '.git' admin-web/ /opt/hoyocalendar/admin-web/
+sudo chown -R hoyo:hoyo /opt/hoyocalendar/admin-web
+
+# 2. 安装并启用服务
+sudo cp cloud/deploy/hoyocalendar-admin-web.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now hoyocalendar-admin-web
+
+# 3. 验证
+ss -tlnp | grep ':8080'                     # 仅 127.0.0.1:8080
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/   # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/api/v1/admin/users  # 401（未登录）
+```
+
+SSH 隧道访问（在本地电脑执行）：
+
+```bash
+ssh -L 8080:127.0.0.1:8080 ubuntu@124.223.41.137
+# 浏览器打开 http://127.0.0.1:8080，用 .env 中 ADMIN_USERNAME 与对应密码登录
+```
+
+### 升级与回退
+
+- **升级**：`git fetch` 后确认新提交，按上面第 1 步 rsync 覆盖，再
+  `sudo systemctl restart hoyocalendar-admin-web`。
+- **回退**（备份位置 `/opt/hoyocalendar/backup/`）：
+  ```bash
+  sudo systemctl stop hoyocalendar-admin-web
+  sudo rm -rf /opt/hoyocalendar/admin-web
+  sudo cp -a /opt/hoyocalendar/backup/admin-web-<备份时间戳> /opt/hoyocalendar/admin-web
+  sudo chown -R hoyo:hoyo /opt/hoyocalendar/admin-web
+  sudo systemctl start hoyocalendar-admin-web
+  curl -s http://127.0.0.1:8080/ -o /dev/null -w '%{http_code}\n'
+  ```
+- **常用运维**：
+  ```bash
+  sudo systemctl status hoyocalendar-admin-web
+  sudo journalctl -u hoyocalendar-admin-web -n 50 --no-pager
+  ```
 
 ## 迁移自空库（验收项）
 
