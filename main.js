@@ -7,12 +7,10 @@ const {
   shell,
   safeStorage,
 } = require('electron');
-const { spawn, spawnSync, execFileSync } = require('child_process');
 const fs = require('fs');
-const http = require('http');
-const net = require('net');
 const os = require('os');
 const path = require('path');
+const { LocalConfig } = require('./src/core/local-config');
 
 const allowMultipleInstances = process.env.HOYO_ALLOW_MULTIPLE_INSTANCES === '1';
 const gotLock = allowMultipleInstances || app.requestSingleInstanceLock();
@@ -56,9 +54,6 @@ process.on('uncaughtException', (error) => logError('uncaughtException', error))
 process.on('unhandledRejection', (reason) => logError('unhandledRejection', reason));
 
 let mainWindow = null;
-let backendProcess = null;
-let backendPort = 5000;
-let backendStopping = false;
 let persistTimer = null;
 
 function loadWindowState() {
@@ -120,140 +115,6 @@ function currentWindowState() {
 function publishWindowState() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('window-state-changed', currentWindowState());
-  }
-}
-
-function findAvailablePort(startPort) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.unref();
-    server.on('error', () => resolve(findAvailablePort(startPort + 1)));
-    server.listen(startPort, '127.0.0.1', () => {
-      const port = server.address().port;
-      server.close(() => resolve(port));
-    });
-  });
-}
-
-function resolvePythonCommand() {
-  const candidates = [
-    { command: 'python', args: [] },
-    { command: 'py', args: ['-3'] },
-    { command: 'python3', args: [] },
-  ];
-  for (const candidate of candidates) {
-    const result = spawnSync(candidate.command, [...candidate.args, '--version'], {
-      windowsHide: true,
-      encoding: 'utf8',
-    });
-    if (!result.error && result.status === 0) return candidate;
-  }
-  return null;
-}
-
-async function startBackend() {
-  backendStopping = false;
-  backendPort = await findAvailablePort(5000);
-  let executable;
-  let args;
-
-  if (app.isPackaged) {
-    executable = path.join(process.resourcesPath, 'backend_server', 'backend_server.exe');
-    args = [String(backendPort)];
-    if (!fs.existsSync(executable)) {
-      logError('Packaged backend not found', executable);
-      return false;
-    }
-  } else {
-    const python = resolvePythonCommand();
-    if (!python) {
-      logError('Python runtime not found');
-      return false;
-    }
-    executable = python.command;
-    args = [
-      ...python.args,
-      path.join(__dirname, 'backend', 'app.py'),
-      String(backendPort),
-    ];
-  }
-
-  log('Starting backend', executable, `port=${backendPort}`);
-  backendProcess = spawn(executable, args, {
-    cwd: app.isPackaged ? process.resourcesPath : __dirname,
-    env: {
-      ...process.env,
-      PYTHONIOENCODING: 'utf-8',
-      HOYO_CALENDAR_VERSION: app.getVersion(),
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-
-  const child = backendProcess;
-  child.stdout.on('data', (data) => log('[Backend]', data.toString().trim()));
-  child.stderr.on('data', (data) => {
-    const message = data.toString().trim();
-    if (/\b(ERROR|Traceback|Exception)\b/i.test(message)) {
-      logError('[Backend]', message);
-    } else {
-      log('[Backend]', message);
-    }
-  });
-  child.on('error', (error) => logError('Backend process error', error));
-  child.on('exit', (code) => {
-    log('Backend exited', `code=${code}`);
-    if (backendProcess === child) backendProcess = null;
-    if (!backendStopping && !app.isQuitting) {
-      setTimeout(async () => {
-        if (app.isQuitting || backendProcess) return;
-        await startBackend();
-        const ready = await waitForBackend();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('backend-ready', ready);
-        }
-      }, 2000);
-    }
-  });
-  return true;
-}
-
-function waitForBackend(timeoutMs = 15000) {
-  return new Promise((resolve) => {
-    const startedAt = Date.now();
-    const check = () => {
-      const request = http.get(`http://127.0.0.1:${backendPort}/api/health`, (response) => {
-        response.resume();
-        if (response.statusCode === 200) resolve(true);
-        else retry();
-      });
-      request.setTimeout(800, () => request.destroy());
-      request.on('error', retry);
-    };
-    const retry = () => {
-      if (Date.now() - startedAt >= timeoutMs) resolve(false);
-      else setTimeout(check, 250);
-    };
-    check();
-  });
-}
-
-function stopBackend() {
-  backendStopping = true;
-  const child = backendProcess;
-  backendProcess = null;
-  if (!child?.pid) return;
-  try {
-    if (process.platform === 'win32') {
-      execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-    } else {
-      child.kill('SIGTERM');
-    }
-  } catch (_) {
-    // The process may already have exited.
   }
 }
 
@@ -332,15 +193,9 @@ app.on('second-instance', () => {
   mainWindow.focus();
 });
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   log('HoYoCalendar starting', `version=${app.getVersion()}`, `packaged=${app.isPackaged}`);
-  await startBackend();
   createWindow();
-  const ready = await waitForBackend();
-  log('Backend readiness', ready);
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('backend-ready', ready);
-  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -355,10 +210,8 @@ app.on('before-quit', () => {
   app.isQuitting = true;
   clearTimeout(persistTimer);
   saveWindowStateNow();
-  stopBackend();
 });
 
-ipcMain.handle('get-backend-port', () => backendPort);
 ipcMain.handle('get-window-state', () => currentWindowState());
 ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('open-logs-folder', async () => shell.openPath(logDir));
@@ -424,6 +277,21 @@ ipcMain.handle('cloud-credential-clear', async () => {
 });
 
 ipcMain.handle('cloud-device-name', () => os.hostname() || '未知设备');
+
+const localConfig = new LocalConfig(
+  path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'HoyoCalendar', 'config.json'),
+);
+
+ipcMain.handle('config-load', () => localConfig.load());
+
+ipcMain.handle('config-save', (_event, updates) => {
+  try {
+    return { success: true, config: localConfig.save(updates) };
+  } catch (error) {
+    logError('Failed to save local config', error);
+    return { success: false };
+  }
+});
 
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
 ipcMain.on('window-close', () => mainWindow?.close());

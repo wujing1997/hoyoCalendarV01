@@ -2058,7 +2058,6 @@
       $('#pinButton').setAttribute('aria-pressed', String(nextState.isPinned));
       $('#maximizeButton').title = nextState.isMaximized ? '还原' : '最大化';
     });
-    window.electronAPI?.onBackendReady(() => checkAgentStatus());
 
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {

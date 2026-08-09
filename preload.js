@@ -2,7 +2,6 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
-const http = require('http');
 const { EventStore } = require('./src/core/event-store');
 const { CommandRouter } = require('./src/core/command-router');
 const { CloudApi, CloudApiError } = require('./src/core/cloud-api');
@@ -23,58 +22,6 @@ try {
 const dataDir = path.join(process.env.APPDATA || process.env.HOME, 'HoyoCalendar');
 const eventStore = new EventStore({ dataDir });
 const commandRouter = new CommandRouter(eventStore);
-
-let backendPort = 5000;
-let backendStatus = 'starting';
-const backendPortReady = ipcRenderer.invoke('get-backend-port')
-  .then((port) => {
-    backendPort = Number(port) || 5000;
-    return backendPort;
-  })
-  .catch(() => backendPort);
-
-function httpRequest(urlPath, method = 'GET', body = null, timeoutMs = 45000) {
-  return new Promise((resolve, reject) => {
-    const payload = body === null ? null : JSON.stringify(body);
-    const request = http.request({
-      hostname: '127.0.0.1',
-      port: backendPort,
-      path: urlPath,
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
-      },
-      timeout: timeoutMs,
-    }, (response) => {
-      let raw = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk) => {
-        raw += chunk;
-      });
-      response.on('end', () => {
-        let data = raw;
-        try {
-          data = raw ? JSON.parse(raw) : {};
-        } catch (_) {
-          // Preserve a non-JSON error body for diagnostics.
-        }
-        resolve({
-          ok: response.statusCode >= 200 && response.statusCode < 300,
-          status: response.statusCode,
-          data,
-        });
-      });
-    });
-
-    request.on('error', reject);
-    request.on('timeout', () => {
-      request.destroy(new Error('backend_timeout'));
-    });
-    if (payload) request.write(payload);
-    request.end();
-  });
-}
 
 function friendlyCloudError(error) {
   if (error instanceof CloudApiError) {
@@ -139,30 +86,25 @@ const syncEngine = new SyncEngine({
 
 async function loadCloudConfig() {
   try {
-    const response = await httpRequest('/api/config', 'GET', null, 5000);
-    if (response.ok && response.data?.cloud?.serverUrl) {
-      syncEngine.setServerUrl(response.data.cloud.serverUrl);
+    const config = await ipcRenderer.invoke('config-load');
+    if (config?.cloud?.serverUrl) {
+      syncEngine.setServerUrl(config.cloud.serverUrl);
     }
   } catch (_) {
-    // 本地配置服务不可用不影响云端功能
+    // 本地配置不可用不影响云端功能
   }
 }
 
 async function saveCloudConfig() {
   try {
-    const response = await httpRequest('/api/config', 'GET', null, 5000);
-    const config = response.ok && typeof response.data === 'object' ? response.data : {};
+    const config = await ipcRenderer.invoke('config-load');
     config.cloud ||= {};
     config.cloud.serverUrl = syncEngine.getSnapshot().serverUrl;
-    await httpRequest('/api/config', 'PUT', config, 5000);
+    await ipcRenderer.invoke('config-save', config);
   } catch (_) {
     // 配置保存失败仅影响下次启动的默认地址
   }
 }
-
-ipcRenderer.on('backend-ready', (_event, ready) => {
-  backendStatus = ready ? 'ready' : 'unavailable';
-});
 
 async function initCloud() {
   syncEngine.migrateLocalEvents();
@@ -186,11 +128,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('window-state-changed', listener);
     return () => ipcRenderer.removeListener('window-state-changed', listener);
-  },
-  onBackendReady: (callback) => {
-    const listener = (_event, ready) => callback(ready);
-    ipcRenderer.on('backend-ready', listener);
-    return () => ipcRenderer.removeListener('backend-ready', listener);
   },
   getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
   setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', Boolean(enabled)),
@@ -418,18 +355,16 @@ contextBridge.exposeInMainWorld('cloudAPI', {
 contextBridge.exposeInMainWorld('configAPI', {
   load: async () => {
     try {
-      await backendPortReady;
-      const response = await httpRequest('/api/config', 'GET', null, 5000);
-      return response.ok ? response.data : {};
+      const config = await ipcRenderer.invoke('config-load');
+      return config && typeof config === 'object' ? config : {};
     } catch (_) {
       return {};
     }
   },
   save: async (config) => {
     try {
-      await backendPortReady;
-      const response = await httpRequest('/api/config', 'PUT', config, 5000);
-      return response.ok ? response.data : { success: false };
+      const result = await ipcRenderer.invoke('config-save', config);
+      return result && typeof result === 'object' ? result : { success: false };
     } catch (_) {
       return { success: false };
     }
