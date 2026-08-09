@@ -1,0 +1,23 @@
+# HoYoCalendar Cloud API (user-facing) — systemd unit
+# 安装：sudo cp deploy/hoyocalendar-api.service /etc/systemd/system/
+#       sudo systemctl daemon-reload && sudo systemctl enable --now hoyocalendar-api
+[Unit]
+Description=HoYoCalendar Cloud API
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=hoyo
+Group=hoyo
+WorkingDirectory=/opt/hoyocalendar/cloud
+EnvironmentFile=/opt/hoyocalendar/.env
+ExecStart=/opt/hoyocalendar/venv/bin/uvicorn app.main:api_app --host 127.0.0.1 --port 8000 --workers 2
+Restart=always
+RestartSec=3
+# 日志脱敏由应用内 RedactingFormatter 保证；不额外记录请求体。
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

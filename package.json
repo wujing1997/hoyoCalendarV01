@@ -10,6 +10,7 @@
     "build": "npm run build:backend && npm run build:electron",
     "test:core": "node --test tests/*.test.js",
     "test:backend": "python -m unittest discover -s backend/tests -p \"test_*.py\"",
+    "test:cloud": "cd cloud && python -m pytest tests -q",
     "test": "npm run test:core && npm run test:backend"
   },
   "keywords": [
