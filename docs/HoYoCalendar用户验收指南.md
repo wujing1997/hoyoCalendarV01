@@ -92,13 +92,26 @@ ssh -L 8000:127.0.0.1:8000 -L 8080:127.0.0.1:8080 腾讯云服务器
 ssh -L 8000:127.0.0.1:8000 -L 8080:127.0.0.1:8080 ubuntu@124.223.41.137
 ```
 
-验证隧道（另开一个窗口执行，应看到与下文一致的输出）：
+验证隧道（另开一个窗口执行，应看到与下文一致的输出）。
+
+方法一：`curl.exe`（Windows 10 1803+ 自带，注意必须写 `curl.exe`，Windows
+PowerShell 5.1 中裸 `curl` 是 `Invoke-WebRequest` 的别名，`-s/-m/-o/-w` 参数无法执行）：
 
 ```powershell
-curl -s -m 5 http://127.0.0.1:8000/healthz
+curl.exe -s -m 5 http://127.0.0.1:8000/healthz
 # 期望：{"status":"ok","version":"0.1.0","database":"up",...}
 
-curl -s -o /dev/null -w "%{http_code}" -m 5 http://127.0.0.1:8080/
+curl.exe -s -o NUL -w "%{http_code}" -m 5 http://127.0.0.1:8080/
+# 期望：200（管理后台页面可访问）
+```
+
+方法二：原生 PowerShell（PowerShell 5.1 / 7 均可直接执行）：
+
+```powershell
+(Invoke-RestMethod -Uri http://127.0.0.1:8000/healthz -TimeoutSec 5).status
+# 期望：ok
+
+(Invoke-WebRequest -Uri http://127.0.0.1:8080/ -TimeoutSec 5 -UseBasicParsing).StatusCode
 # 期望：200（管理后台页面可访问）
 ```
 
@@ -208,8 +221,11 @@ curl -s -o /dev/null -w "%{http_code}" -m 5 http://127.0.0.1:8080/
    | 设置 | AI 全局开关与月度预算 |
    | 审计 | 管理操作审计日志 |
 
-4. 登录令牌仅保存在浏览器 `sessionStorage`，关闭浏览器即失效；「退出登录」会同时
-   撤销服务端会话。
+4. 登录令牌仅保存在浏览器 `sessionStorage`，关闭浏览器即失效。**「退出登录」只清除
+   浏览器中保存的令牌并调用一次服务端 logout（当前为 no-op，返回 204），不会撤销
+   已签发的服务端会话**：已签发的管理 JWT 是无状态令牌，最长仍可在 1 小时内有效
+   （服务端默认 `ADMIN_TOKEN_MINUTES=60`）。如怀疑令牌泄露，需联系部署方更换
+   `ADMIN_TOKEN_SECRET` 并重启管理服务，仅退出登录或关闭浏览器无法使其立即失效。
 
 ## 10. 验收清单
 
