@@ -55,7 +55,8 @@ body[data-theme="dark"] {
   box-sizing: border-box;
 }
 
-[hidden] {
+[hidden],
+.hidden {
   display: none !important;
 }
 

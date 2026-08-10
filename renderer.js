@@ -1978,8 +1978,9 @@
       setTheme(document.body.dataset.theme === 'dark' ? 'light' : 'dark');
     });
 
-    $$('[data-close-overlay]').forEach((button) => {
-      button.addEventListener('click', () => closeOverlay(button.dataset.closeOverlay));
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-close-overlay]');
+      if (button) closeOverlay(button.dataset.closeOverlay);
     });
     $$('.overlay').forEach((overlay) => {
       overlay.addEventListener('click', (event) => {
