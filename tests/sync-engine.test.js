@@ -456,3 +456,40 @@ test('approval maps snapshot UUID ids back to local ids', () => {
     assert.equal(engine.queue.length, 1);
   });
 });
+
+test('sync engine defaults to the public HTTPS server url', () => {
+  const { DEFAULT_SERVER_URL } = require('../src/core/cloud-api');
+  withEngine({}, (engine) => {
+    assert.equal(engine.getSnapshot().serverUrl, DEFAULT_SERVER_URL);
+    assert.equal(engine.api.baseUrl, DEFAULT_SERVER_URL);
+  });
+});
+
+test('sync engine migrates a persisted legacy default url at load', () => {
+  const { DEFAULT_SERVER_URL } = require('../src/core/cloud-api');
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoyo-sync-legacy-'));
+  fs.writeFileSync(path.join(dataDir, 'sync-state.json'), JSON.stringify({ serverUrl: 'http://127.0.0.1:8000', cursor: 0, account: null, conflicts: [], migrationDone: false }), 'utf8');
+  const store = new EventStore({ dataDir });
+  const engine = new SyncEngine({ eventStore: store, api: new FakeCloudApi(), dataDir, isOnline: () => true });
+  assert.equal(engine.getSnapshot().serverUrl, DEFAULT_SERVER_URL);
+  assert.equal(engine.api.baseUrl, DEFAULT_SERVER_URL);
+});
+
+test('sync engine preserves a custom persisted server url at load', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoyo-sync-custom-'));
+  fs.writeFileSync(path.join(dataDir, 'sync-state.json'), JSON.stringify({ serverUrl: 'https://custom.example.com', cursor: 0, account: null, conflicts: [], migrationDone: false }), 'utf8');
+  const store = new EventStore({ dataDir });
+  const engine = new SyncEngine({ eventStore: store, api: new FakeCloudApi(), dataDir, isOnline: () => true });
+  assert.equal(engine.getSnapshot().serverUrl, 'https://custom.example.com');
+  assert.equal(engine.api.baseUrl, 'https://custom.example.com');
+});
+
+test('sync engine setServerUrl falls back to the new default for empty input', () => {
+  const { DEFAULT_SERVER_URL } = require('../src/core/cloud-api');
+  withEngine({}, (engine) => {
+    engine.setServerUrl('');
+    assert.equal(engine.getSnapshot().serverUrl, DEFAULT_SERVER_URL);
+    engine.setServerUrl('   ');
+    assert.equal(engine.getSnapshot().serverUrl, DEFAULT_SERVER_URL);
+  });
+});

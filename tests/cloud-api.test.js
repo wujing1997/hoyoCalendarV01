@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { CloudApi, CloudApiError, parseBaseUrl } = require('../src/core/cloud-api');
+const { CloudApi, CloudApiError, parseBaseUrl, migrateLegacyServerUrl, DEFAULT_SERVER_URL, LEGACY_DEFAULT_SERVER_URL } = require('../src/core/cloud-api');
 
 function startServer(handler) {
   return new Promise((resolve) => {
@@ -24,7 +24,33 @@ function jsonHandler(status, body) {
 test('parseBaseUrl normalizes host and scheme', () => {
   assert.deepEqual(parseBaseUrl('127.0.0.1:8000'), { origin: 'http://127.0.0.1:8000', isHttps: false });
   assert.deepEqual(parseBaseUrl('https://example.com'), { origin: 'https://example.com', isHttps: true });
-  assert.equal(parseBaseUrl('').origin, 'http://127.0.0.1:8000');
+  assert.equal(parseBaseUrl('').origin, DEFAULT_SERVER_URL);
+});
+
+test('production default server url is the public HTTPS endpoint', () => {
+  assert.equal(DEFAULT_SERVER_URL, 'https://api.jianghaihaoyang.online');
+  assert.equal(parseBaseUrl(DEFAULT_SERVER_URL).isHttps, true);
+  assert.notEqual(DEFAULT_SERVER_URL, LEGACY_DEFAULT_SERVER_URL);
+});
+
+test('migrateLegacyServerUrl upgrades only the legacy default', () => {
+  assert.equal(migrateLegacyServerUrl('http://127.0.0.1:8000'), DEFAULT_SERVER_URL);
+  assert.equal(migrateLegacyServerUrl('127.0.0.1:8000'), DEFAULT_SERVER_URL);
+  assert.equal(migrateLegacyServerUrl('http://127.0.0.1:8000/'), DEFAULT_SERVER_URL);
+});
+
+test('migrateLegacyServerUrl preserves custom and empty values', () => {
+  assert.equal(migrateLegacyServerUrl('https://custom.example.com'), 'https://custom.example.com');
+  assert.equal(migrateLegacyServerUrl('http://127.0.0.1:9000'), 'http://127.0.0.1:9000');
+  assert.equal(migrateLegacyServerUrl(''), '');
+  assert.equal(migrateLegacyServerUrl(null), null);
+  assert.equal(migrateLegacyServerUrl(undefined), undefined);
+  assert.equal(migrateLegacyServerUrl(DEFAULT_SERVER_URL), DEFAULT_SERVER_URL);
+});
+
+test('CloudApi defaults to the public HTTPS endpoint', () => {
+  const api = new CloudApi();
+  assert.equal(api.baseUrl, DEFAULT_SERVER_URL);
 });
 
 test('login posts to /api/v1/auth/login and stores tokens', async () => {
@@ -174,4 +200,29 @@ test('network errors are reported gracefully by health()', async () => {
   const result = await api.health();
   assert.equal(result.ok, false);
   assert.equal(result.status, 0);
+});
+
+test('https requests go through the https transport on port 443', async () => {
+  const https = require('node:https');
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const key = fs.readFileSync(path.join(__dirname, 'fixtures', 'https-key.pem'));
+  const cert = fs.readFileSync(path.join(__dirname, 'fixtures', 'https-cert.pem'));
+  const server = https.createServer({ key, cert }, (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  try {
+    const { request } = require('../src/core/cloud-api');
+    const result = await request(`https://127.0.0.1:${port}/healthz`, 'GET', null, {
+      timeoutMs: 5000,
+      rejectUnauthorized: false,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.data.ok, true);
+  } finally {
+    server.close();
+  }
 });

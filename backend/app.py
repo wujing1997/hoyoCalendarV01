@@ -27,7 +27,7 @@ DATA_DIR = os.path.join(
     os.environ.get('APPDATA', os.path.expanduser('~')),
     'HoyoCalendar',
 )
-VERSION = os.environ.get('HOYO_CALENDAR_VERSION', '3.0.1')
+VERSION = os.environ.get('HOYO_CALENDAR_VERSION', '3.0.2')
 
 config_store = ConfigStore(DATA_DIR)
 agent_service = AgentService(config_store)

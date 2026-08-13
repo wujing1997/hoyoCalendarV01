@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 const { EventStore } = require('./src/core/event-store');
 const { CommandRouter } = require('./src/core/command-router');
-const { CloudApi, CloudApiError } = require('./src/core/cloud-api');
+const { CloudApi, CloudApiError, DEFAULT_SERVER_URL, migrateLegacyServerUrl } = require('./src/core/cloud-api');
 const { SyncEngine } = require('./src/core/sync-engine');
 
 let Lunar;
@@ -41,7 +41,7 @@ const credentialStore = {
   clearRefreshToken: () => ipcRenderer.invoke('cloud-credential-clear'),
 };
 
-const cloudApi = new CloudApi({ baseUrl: 'http://127.0.0.1:8000', timeoutMs: 45000 });
+const cloudApi = new CloudApi({ baseUrl: DEFAULT_SERVER_URL, timeoutMs: 45000 });
 
 const syncEngine = new SyncEngine({
   eventStore,
@@ -88,7 +88,12 @@ async function loadCloudConfig() {
   try {
     const config = await ipcRenderer.invoke('config-load');
     if (config?.cloud?.serverUrl) {
-      syncEngine.setServerUrl(config.cloud.serverUrl);
+      const migrated = migrateLegacyServerUrl(config.cloud.serverUrl);
+      if (migrated !== config.cloud.serverUrl) {
+        config.cloud.serverUrl = migrated;
+        await ipcRenderer.invoke('config-save', config);
+      }
+      syncEngine.setServerUrl(migrated);
     }
   } catch (_) {
     // 本地配置不可用不影响云端功能

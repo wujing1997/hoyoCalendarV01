@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { CloudApiError } = require('./cloud-api');
+const { CloudApiError, DEFAULT_SERVER_URL, migrateLegacyServerUrl } = require('./cloud-api');
 
 const SYNC_STATUS = {
   SIGNED_OUT: 'signed-out',
@@ -75,7 +75,7 @@ class SyncEngine {
     this.onMigrationSummary = options.onMigrationSummary || (() => {});
     this.isOnline = options.isOnline || (() => true);
     this.state = readJsonFile(this.stateFile, {
-      serverUrl: options.serverUrl || 'http://127.0.0.1:8000',
+      serverUrl: options.serverUrl || DEFAULT_SERVER_URL,
       cursor: 0,
       lastSyncAt: null,
       lastError: null,
@@ -84,6 +84,8 @@ class SyncEngine {
       migrationSummary: null,
       migrationDone: false,
     });
+    this.state.serverUrl = migrateLegacyServerUrl(this.state.serverUrl);
+    if (this.api) this.api.baseUrl = this.state.serverUrl;
     this.queue = readJsonFile(this.queueFile, []);
     this.account = this.state.account || null;
     this.flushTimer = null;
@@ -134,7 +136,7 @@ class SyncEngine {
   }
 
   setServerUrl(url) {
-    const next = String(url || '').trim() || 'http://127.0.0.1:8000';
+    const next = String(url || '').trim() || DEFAULT_SERVER_URL;
     this.state.serverUrl = next;
     this.api.baseUrl = next;
     this.persistState();

@@ -1359,7 +1359,7 @@
         <h2>服务器</h2>
         <label class="settings-field">
           <span>云端服务器地址</span>
-          <input type="text" id="serverUrlInput" value="${escapeHtml(snapshot?.serverUrl || '')}" placeholder="http://127.0.0.1:8000">
+          <input type="text" id="serverUrlInput" value="${escapeHtml(snapshot?.serverUrl || '')}" placeholder="https://api.jianghaihaoyang.online">
         </label>
         <p class="field-hint">测试期可填写 SSH 隧道地址；正式部署后填写服务器 HTTPS 域名。</p>
         <button class="secondary-button" id="saveServerUrlButton">保存服务器地址</button>
@@ -1374,7 +1374,7 @@
         <h2>服务器</h2>
         <label class="settings-field">
           <span>云端服务器地址</span>
-          <input type="text" id="serverUrlInput" value="${escapeHtml(snapshot?.serverUrl || '')}" placeholder="http://127.0.0.1:8000">
+          <input type="text" id="serverUrlInput" value="${escapeHtml(snapshot?.serverUrl || '')}" placeholder="https://api.jianghaihaoyang.online">
         </label>
         <p class="field-hint">测试期可填写 SSH 隧道地址；正式部署后填写服务器 HTTPS 域名。</p>
         <button class="secondary-button" id="saveServerUrlButton">保存服务器地址</button>
@@ -1704,7 +1704,7 @@
     $('#windowModeSelect').value = state.windowState.mode || 'wide';
     $('#autoLaunchToggle').checked = Boolean(await window.electronAPI?.getAutoLaunch());
     const version = await window.electronAPI?.getAppVersion();
-    $('#appVersion').textContent = `V${version || '3.0.1'}`;
+    $('#appVersion').textContent = `V${version || '3.0.2'}`;
     openOverlay('settingsOverlay');
   }
 

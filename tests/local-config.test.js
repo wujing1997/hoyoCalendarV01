@@ -32,11 +32,11 @@ test('save persists merged config and keeps defaults', (t) => {
   const dir = tempDir(t);
   const file = path.join(dir, 'config.json');
   const store = new LocalConfig(file);
-  const saved = store.save({ cloud: { serverUrl: 'http://127.0.0.1:8000' } });
-  assert.equal(saved.cloud.serverUrl, 'http://127.0.0.1:8000');
+  const saved = store.save({ cloud: { serverUrl: 'https://api.jianghaihaoyang.online' } });
+  assert.equal(saved.cloud.serverUrl, 'https://api.jianghaihaoyang.online');
   assert.equal(saved.ai.provider, 'doubao');
   const reloaded = new LocalConfig(file).load();
-  assert.equal(reloaded.cloud.serverUrl, 'http://127.0.0.1:8000');
+  assert.equal(reloaded.cloud.serverUrl, 'https://api.jianghaihaoyang.online');
   assert.equal(reloaded.ai.provider, 'doubao');
 });
 
@@ -75,4 +75,14 @@ test('load merges stored config over defaults but tolerates unknown keys', (t) =
   assert.equal(config.cloud.serverUrl, 'http://127.0.0.1:9000');
   assert.equal(config.custom, true);
   assert.equal(config.ai.provider, 'doubao');
+});
+
+test('legacy loopback server url in stored config is migrated to the https default', (t) => {
+  const dir = tempDir(t);
+  const file = path.join(dir, 'config.json');
+  fs.writeFileSync(file, JSON.stringify({ cloud: { serverUrl: 'http://127.0.0.1:8000' } }), 'utf8');
+  const store = new LocalConfig(file);
+  const migrated = store.load();
+  migrated.cloud.serverUrl = require('../src/core/cloud-api').migrateLegacyServerUrl(migrated.cloud.serverUrl);
+  assert.equal(migrated.cloud.serverUrl, 'https://api.jianghaihaoyang.online');
 });

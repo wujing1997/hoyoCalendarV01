@@ -3,6 +3,9 @@
 const http = require('http');
 const https = require('https');
 
+const DEFAULT_SERVER_URL = 'https://api.jianghaihaoyang.online';
+const LEGACY_DEFAULT_SERVER_URL = 'http://127.0.0.1:8000';
+
 class CloudApiError extends Error {
   constructor(message, status, detail, code) {
     super(message);
@@ -15,10 +18,17 @@ class CloudApiError extends Error {
 
 function parseBaseUrl(rawUrl) {
   let url = String(rawUrl || '').trim();
-  if (!url) url = 'http://127.0.0.1:8000';
+  if (!url) url = DEFAULT_SERVER_URL;
   if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   const parsed = new URL(url);
   return { origin: parsed.origin, isHttps: parsed.protocol === 'https:' };
+}
+
+function migrateLegacyServerUrl(savedValue) {
+  const trimmed = String(savedValue || '').trim();
+  if (!trimmed) return savedValue;
+  const normalized = parseBaseUrl(trimmed).origin;
+  return normalized === LEGACY_DEFAULT_SERVER_URL ? DEFAULT_SERVER_URL : savedValue;
 }
 
 function request(url, method = 'GET', body = null, options = {}) {
@@ -41,6 +51,9 @@ function request(url, method = 'GET', body = null, options = {}) {
       headers,
       timeout: timeoutMs,
     };
+    if (isHttps && options.rejectUnauthorized !== undefined) {
+      requestOptions.rejectUnauthorized = options.rejectUnauthorized;
+    }
     const req = transport.request(requestOptions, (response) => {
       let raw = '';
       response.setEncoding('utf8');
@@ -84,7 +97,7 @@ function requireOk(response, fallback) {
 
 class CloudApi {
   constructor(options = {}) {
-    this.baseUrl = options.baseUrl || 'http://127.0.0.1:8000';
+    this.baseUrl = options.baseUrl || DEFAULT_SERVER_URL;
     this.timeoutMs = options.timeoutMs || 45000;
     this.request = options.request || request;
     this.bearerToken = null;
@@ -278,4 +291,4 @@ class CloudApi {
   }
 }
 
-module.exports = { CloudApi, CloudApiError, request, parseBaseUrl };
+module.exports = { CloudApi, CloudApiError, request, parseBaseUrl, migrateLegacyServerUrl, DEFAULT_SERVER_URL, LEGACY_DEFAULT_SERVER_URL };
