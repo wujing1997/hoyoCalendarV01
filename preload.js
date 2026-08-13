@@ -21,7 +21,9 @@ try {
 
 const dataDir = path.join(process.env.APPDATA || process.env.HOME, 'HoyoCalendar');
 const eventStore = new EventStore({ dataDir });
-const commandRouter = new CommandRouter(eventStore);
+const commandRouter = new CommandRouter(eventStore, {
+  onLocalChange: (id, op) => notifyLocalChange(id, op),
+});
 
 function friendlyCloudError(error) {
   if (error instanceof CloudApiError) {

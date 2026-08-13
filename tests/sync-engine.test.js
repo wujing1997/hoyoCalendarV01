@@ -493,3 +493,17 @@ test('sync engine setServerUrl falls back to the new default for empty input', (
     assert.equal(engine.getSnapshot().serverUrl, DEFAULT_SERVER_URL);
   });
 });
+
+test('duplicate local change notifications do not double-enqueue the same event', () => {
+  withEngine({}, (engine) => {
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    const created = engine.__store.addEvent({ event: '去开会', date: '2026-08-01' });
+    engine.noteLocalChange(created.id, 'upsert');
+    engine.noteLocalChange(created.id, 'upsert');
+    engine.noteLocalChange(created.id, 'upsert');
+    assert.equal(engine.queue.length, 1);
+    assert.equal(engine.queue[0].eventId, created._uuid);
+    assert.equal(engine.queue[0].op, 'upsert');
+  });
+});
