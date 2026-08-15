@@ -253,7 +253,12 @@
         .join('、');
       return days ? `每周${days}` : '每周';
     }
-    if (event.recurringType === 'monthly') return '每月';
+    if (event.recurringType === 'monthly') {
+      const days = (event.recurringMonthDays || [])
+        .filter((day) => day >= 1 && day <= 31)
+        .sort((a, b) => a - b);
+      return days.length ? `每月${days.join('、')}日` : '每月';
+    }
     return '每天';
   }
 
@@ -502,6 +507,27 @@
     return `<section class="task-section">${head}${body}</section>`;
   }
 
+  function timerBarMarkup(event) {
+    const record = timerRecordFor(event);
+    const total = Math.max(1, Number(event.targetDurationMinutes) * 60);
+    const used = elapsedSeconds(record);
+    const completed = Boolean(event.isCompleted);
+    const pct = completed ? 100 : Math.min(100, Math.round((used / total) * 100));
+    return `
+      <span
+        class="timer-progress"
+        data-timer-progress
+        data-base-seconds="${Number(record?.elapsedSeconds) || 0}"
+        data-running-since="${record?.runningSince || ''}"
+        data-total-seconds="${total}"
+        data-completed="${completed}"
+        title="专注 ${formatElapsed(used)} / ${formatElapsed(total)}"
+      >
+        <span class="timer-progress-fill" style="width: ${pct}%"></span>
+      </span>
+    `;
+  }
+
   function renderTaskRow(event) {
     const completed = Boolean(event.isCompleted);
     const selected = String(event.id) === String(state.selectedEventId);
@@ -547,6 +573,7 @@
         <span class="task-time ${event.time ? '' : 'all-day'}">${event.time || '全天'}</span>
         <button class="task-body" data-task-select="${escapeHtml(event.id)}">
           <span class="task-title">${escapeHtml(event.event)}</span>
+          ${event.targetDurationMinutes ? timerBarMarkup(event) : ''}
           ${metadata.length ? `<span class="task-meta">${metadata.join('')}</span>` : ''}
         </button>
         ${status && !completed
@@ -658,6 +685,9 @@
     }
     const type = event.isDeadline ? 'deadline' : (event.isRecurring ? 'recurring' : 'normal');
     const baseDate = event.startDate || event.date || dateKey(state.selectedDate);
+    const monthDays = Array.isArray(event.recurringMonthDays) && event.recurringMonthDays.length
+      ? event.recurringMonthDays
+      : [parseDateKey(baseDate).getDate()];
     const record = timerRecordFor(event);
     const running = Boolean(record?.runningSince);
     return `
@@ -760,6 +790,24 @@
                   data-weekday="${day}"
                   aria-pressed="${(event.recurringDays || []).includes(day)}"
                 >${name}</button>
+              `).join('')}
+            </div>
+          </label>
+          <label
+            class="detail-field"
+            data-recurring-monthday-field
+            ${type === 'recurring' && event.recurringType === 'monthly' ? '' : 'hidden'}
+          >
+            ${icon('calendar-days')}
+            <span>每月日期</span>
+            <div class="weekday-picker monthday-picker" data-monthday-picker>
+              ${Array.from({ length: 31 }, (_, index) => index + 1).map((day) => `
+                <button
+                  type="button"
+                  class="weekday-chip ${monthDays.includes(day) ? 'selected' : ''}"
+                  data-monthday="${day}"
+                  aria-pressed="${monthDays.includes(day)}"
+                >${day}</button>
               `).join('')}
             </div>
           </label>
@@ -974,6 +1022,9 @@
       const selectedDays = $$('[data-weekday]', form)
         .filter((chip) => chip.classList.contains('selected'))
         .map((chip) => Number(chip.dataset.weekday));
+      const selectedMonthDays = $$('[data-monthday]', form)
+        .filter((chip) => chip.classList.contains('selected'))
+        .map((chip) => Number(chip.dataset.monthday));
       Object.assign(updates, {
         isDeadline: false,
         isRecurring: true,
@@ -982,6 +1033,7 @@
         endDate: values.endDate || dateKey(addDays(parseDateKey(date), 30)),
         recurringType,
         recurringDays: recurringType === 'weekly' ? selectedDays : [],
+        recurringMonthDays: recurringType === 'monthly' ? selectedMonthDays : [],
         completedDates: source.completedDates || [],
       });
     } else {
@@ -1027,6 +1079,20 @@
         ? base + Math.max(0, Math.floor((Date.now() - new Date(runningSince).getTime()) / 1000))
         : base;
       element.textContent = formatElapsed(seconds);
+    });
+    $$('[data-timer-progress]').forEach((element) => {
+      const base = Number(element.dataset.baseSeconds) || 0;
+      const runningSince = element.dataset.runningSince;
+      const total = Math.max(1, Number(element.dataset.totalSeconds) || 1);
+      const seconds = runningSince
+        ? base + Math.max(0, Math.floor((Date.now() - new Date(runningSince).getTime()) / 1000))
+        : base;
+      const pct = element.dataset.completed === 'true'
+        ? 100
+        : Math.min(100, Math.round((seconds / total) * 100));
+      const fill = element.querySelector('.timer-progress-fill');
+      if (fill) fill.style.width = `${pct}%`;
+      element.setAttribute('title', `专注 ${formatElapsed(seconds)} / ${formatElapsed(total)}`);
     });
   }
 
@@ -1913,6 +1979,12 @@
     if (weekdayChip) {
       const selected = weekdayChip.classList.toggle('selected');
       weekdayChip.setAttribute('aria-pressed', String(selected));
+      return;
+    }
+    const monthdayChip = event.target.closest('[data-monthday]');
+    if (monthdayChip) {
+      const selected = monthdayChip.classList.toggle('selected');
+      monthdayChip.setAttribute('aria-pressed', String(selected));
     }
   }
 
@@ -1931,14 +2003,21 @@
       $$('[data-recurring-weekday-field]', form).forEach((field) => {
         field.hidden = !(recurring && recurringType === 'weekly');
       });
+      $$('[data-recurring-monthday-field]', form).forEach((field) => {
+        field.hidden = !(recurring && recurringType === 'monthly');
+      });
       return;
     }
     const recurringTypeSelect = event.target.closest('[name="recurringType"]');
     if (recurringTypeSelect) {
       const form = recurringTypeSelect.closest('[data-detail-form]');
       const weekly = recurringTypeSelect.value === 'weekly';
+      const monthly = recurringTypeSelect.value === 'monthly';
       $$('[data-recurring-weekday-field]', form).forEach((field) => {
         field.hidden = !weekly;
+      });
+      $$('[data-recurring-monthday-field]', form).forEach((field) => {
+        field.hidden = !monthly;
       });
     }
   }

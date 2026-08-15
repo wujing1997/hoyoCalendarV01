@@ -166,6 +166,107 @@ test('saving a weekly recurring task persists the selected weekdays', () => {
   );
 });
 
+// ------------------------------------------------------------------ monthly day picker
+
+test('detail dialog renders a 1-31 day picker for monthly recurring tasks', () => {
+  assert.match(rendererSource, /data-monthday-picker/);
+  assert.match(rendererSource, /Array\.from\(\{ length: 31 \}, \(_, index\) => index \+ 1\)/);
+  assert.match(rendererSource, /data-monthday="\$\{day\}"/);
+});
+
+test('month day picker prefills existing days or the start day', () => {
+  assert.match(
+    rendererSource,
+    /const monthDays = Array\.isArray\(event\.recurringMonthDays\) && event\.recurringMonthDays\.length[\s\S]*?\? event\.recurringMonthDays[\s\S]*?: \[parseDateKey\(baseDate\)\.getDate\(\)\]/,
+  );
+  assert.match(
+    rendererSource,
+    /class="weekday-chip \$\{monthDays\.includes\(day\) \? 'selected' : ''\}"/,
+  );
+});
+
+test('month day picker field is visible only for monthly recurring type', () => {
+  assert.match(
+    rendererSource,
+    /data-recurring-monthday-field[\s\S]*?\$\{type === 'recurring' && event\.recurringType === 'monthly' \? '' : 'hidden'\}/,
+  );
+});
+
+test('changing recurring type toggles both weekday and month-day fields', () => {
+  assert.match(
+    rendererSource,
+    /\$\$\('\[data-recurring-monthday-field\]', form\)\.forEach\(\(field\) => \{\s*field\.hidden = !monthly;\s*\}\)/,
+  );
+  assert.match(rendererSource, /const monthly = recurringTypeSelect\.value === 'monthly';/);
+});
+
+test('clicking a month-day chip toggles its selected state', () => {
+  assert.match(
+    rendererSource,
+    /const monthdayChip = event\.target\.closest\('\[data-monthday\]'\);/,
+  );
+  assert.match(rendererSource, /monthdayChip\.classList\.toggle\('selected'\)/);
+});
+
+test('saving a monthly recurring task persists the selected day numbers', () => {
+  assert.match(
+    rendererSource,
+    /const selectedMonthDays = \$\$\('\[data-monthday\]', form\)[\s\S]*?\.map\(\(chip\) => Number\(chip\.dataset\.monthday\)\)/,
+  );
+  assert.match(
+    rendererSource,
+    /recurringMonthDays: recurringType === 'monthly' \? selectedMonthDays : \[\],/,
+  );
+});
+
+test('recurrence label shows monthly day numbers', () => {
+  assert.match(
+    rendererSource,
+    /const days = \(event\.recurringMonthDays \|\| \[\]\)[\s\S]*?\.sort\(\(a, b\) => a - b\)/,
+  );
+  assert.match(rendererSource, /return days\.length \? `每月\$\{days\.join\('、'\)\}日` : '每月';/);
+});
+
+// ------------------------------------------------------------------ focus timer progress bar
+
+test('task rows render a focus-timer progress bar between title and meta', () => {
+  assert.match(
+    rendererSource,
+    /\$\{event\.targetDurationMinutes \? timerBarMarkup\(event\) : ''\}/,
+  );
+  assert.match(rendererSource, /data-timer-progress/);
+  assert.match(rendererSource, /class="timer-progress-fill" style="width: \$\{pct\}%"/);
+});
+
+test('progress bar reads persisted timer state and caps at 100%', () => {
+  assert.match(
+    rendererSource,
+    /const total = Math\.max\(1, Number\(event\.targetDurationMinutes\) \* 60\);/,
+  );
+  assert.match(
+    rendererSource,
+    /const pct = completed \? 100 : Math\.min\(100, Math\.round\(\(used \/ total\) \* 100\)\);/,
+  );
+  assert.match(
+    rendererSource,
+    /data-base-seconds="\$\{Number\(record\?\.elapsedSeconds\) \|\| 0\}"/,
+  );
+  assert.match(rendererSource, /data-completed="\$\{completed\}"/);
+});
+
+test('timer tick updates progress fills in real time and stops when paused', () => {
+  assert.match(
+    rendererSource,
+    /\$\$\('\[data-timer-progress\]'\)\.forEach\(\(element\) => \{/,
+  );
+  assert.match(
+    rendererSource,
+    /const pct = element\.dataset\.completed === 'true'\s*\?\s*100\s*:\s*Math\.min\(100, Math\.round\(\(seconds \/ total\) \* 100\)\);/,
+  );
+  assert.match(rendererSource, /fill\.style\.width = `\$\{pct\}%`;/);
+  assert.match(rendererSource, /setInterval\(updateTimerReadouts, 1000\)/);
+});
+
 // ------------------------------------------------------------------ login persistence wiring
 
 test('startup restores the session before sync can run', () => {

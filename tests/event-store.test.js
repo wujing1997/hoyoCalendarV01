@@ -92,6 +92,89 @@ test('recurring completion only affects the selected date', () => {
   });
 });
 
+test('monthly recurring events occur on the selected day numbers only', () => {
+  withStore((store) => {
+    const event = store.addEvent({
+      event: '账单日',
+      date: '2026-08-01',
+      startDate: '2026-08-01',
+      endDate: '2026-10-31',
+      isRecurring: true,
+      recurringType: 'monthly',
+      recurringMonthDays: [1, 15],
+    });
+    for (const day of ['2026-08-01', '2026-08-15', '2026-09-01', '2026-09-15', '2026-10-01', '2026-10-15']) {
+      const instances = store.getEventsByDate(day);
+      assert.equal(instances.length, 1, `${day} should have one instance`);
+      assert.equal(instances[0].isRecurringInstance, true);
+    }
+    assert.equal(store.getEventsByDate('2026-08-02').length, 0);
+    assert.equal(store.getEventsByDate('2026-09-16').length, 0);
+  });
+});
+
+test('monthly recurring events skip non-existent days in short months', () => {
+  withStore((store) => {
+    const event = store.addEvent({
+      event: '月末结账',
+      date: '2026-08-29',
+      startDate: '2026-08-29',
+      endDate: '2027-04-30',
+      isRecurring: true,
+      recurringType: 'monthly',
+      recurringMonthDays: [29, 30, 31],
+    });
+    assert.equal(store.getEventsByDate('2027-01-29').length, 1);
+    assert.equal(store.getEventsByDate('2027-01-30').length, 1);
+    assert.equal(store.getEventsByDate('2027-01-31').length, 1);
+    assert.equal(store.getEventsByDate('2027-02-28').length, 0);
+    assert.equal(store.getEventsByDate('2027-03-01').length, 0);
+    assert.equal(store.getEventsByDate('2027-03-29').length, 1);
+    assert.equal(store.getEventsByDate('2027-03-31').length, 1);
+  });
+});
+
+test('monthly recurring events without explicit days fall back to the start day', () => {
+  withStore((store) => {
+    const event = store.addEvent({
+      event: '月度总结',
+      date: '2026-08-10',
+      startDate: '2026-08-10',
+      endDate: '2026-10-31',
+      isRecurring: true,
+      recurringType: 'monthly',
+    });
+    assert.equal(store.getEventsByDate('2026-08-10').length, 1);
+    assert.equal(store.getEventsByDate('2026-09-10').length, 1);
+    assert.equal(store.getEventsByDate('2026-09-11').length, 0);
+  });
+});
+
+test('recurringMonthDays are normalized, deduped and clamped to 1-31', () => {
+  withStore((store) => {
+    const event = store.addEvent({
+      event: '多日期任务',
+      date: '2026-08-05',
+      startDate: '2026-08-05',
+      endDate: '2026-12-31',
+      isRecurring: true,
+      recurringType: 'monthly',
+      recurringMonthDays: [5, 5, 20, 0, 32, 15],
+    });
+    assert.deepEqual(event.recurringMonthDays, [5, 20, 15]);
+    const weekly = store.addEvent({
+      event: '周任务',
+      date: '2026-08-05',
+      startDate: '2026-08-05',
+      endDate: '2026-12-31',
+      isRecurring: true,
+      recurringType: 'weekly',
+      recurringMonthDays: [5, 20],
+    });
+    assert.equal(weekly.recurringMonthDays, undefined);
+  });
+});
+
 test('command router executes common creation and query locally', () => {
   withStore((store) => {
     const today = new Date();

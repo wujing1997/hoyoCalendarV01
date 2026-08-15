@@ -40,6 +40,35 @@ test('parses weekly recurrence and strips schedule words from title', () => {
   assert.equal(result.event.event, '去健身房');
 });
 
+test('parses monthly recurrence with multiple day numbers', () => {
+  const result = parseQuickCommand('每月1号和15号交房租', {
+    now,
+    contextDate: '2026-07-30',
+  });
+  assert.equal(result.event.isRecurring, true);
+  assert.equal(result.event.recurringType, 'monthly');
+  assert.deepEqual(result.event.recurringMonthDays, [1, 15]);
+  assert.equal(result.event.event, '交房租');
+});
+
+test('parses a single monthly day number', () => {
+  const result = parseQuickCommand('每月10号发工资日提醒', {
+    now,
+    contextDate: '2026-07-30',
+  });
+  assert.equal(result.event.recurringType, 'monthly');
+  assert.deepEqual(result.event.recurringMonthDays, [10]);
+});
+
+test('invalid monthly day numbers are ignored', () => {
+  const result = parseQuickCommand('每月40号整理', {
+    now,
+    contextDate: '2026-07-30',
+  });
+  assert.equal(result.event.recurringType, 'monthly');
+  assert.deepEqual(result.event.recurringMonthDays, []);
+});
+
 test('routes existing-event mutations to the agent', () => {
   const result = parseQuickCommand('把明天的会议改到后天', {
     now,

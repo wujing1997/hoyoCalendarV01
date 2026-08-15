@@ -122,6 +122,13 @@ class EventStore {
       event.recurringDays = Array.isArray(event.recurringDays)
         ? [...new Set(event.recurringDays.map(Number).filter((day) => day >= 0 && day <= 6))]
         : [];
+      if (event.recurringType === 'monthly') {
+        event.recurringMonthDays = Array.isArray(event.recurringMonthDays)
+          ? [...new Set(event.recurringMonthDays.map(Number).filter((day) => day >= 1 && day <= 31))]
+          : [];
+      } else {
+        delete event.recurringMonthDays;
+      }
       event.completedDates = Array.isArray(event.completedDates)
         ? [...new Set(event.completedDates.filter((date) => this.validDate(date)))]
         : [];
@@ -421,6 +428,9 @@ class EventStore {
       return (event.recurringDays || []).includes(date.getDay());
     }
     if (event.recurringType === 'monthly') {
+      if (Array.isArray(event.recurringMonthDays) && event.recurringMonthDays.length) {
+        return event.recurringMonthDays.includes(date.getDate());
+      }
       return date.getDate() === start.getDate();
     }
     return true;

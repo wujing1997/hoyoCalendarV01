@@ -883,3 +883,48 @@ test('editing a recurring rule updates the series record once and re-queues with
     assert.equal(serverEvent.data.event, '每周训练');
   });
 });
+
+test('editing monthly day numbers updates one series record, sync payload and survives reload', async () => {
+  await withEngine({}, async (engine) => {
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    const created = engine.__store.addEvent({
+      event: '每月账单',
+      date: '2026-08-01',
+      isRecurring: true,
+      recurringType: 'monthly',
+      recurringMonthDays: [1, 15],
+      endDate: '2026-12-31',
+    });
+    engine.__store.ensureSyncMetadata();
+    engine.noteLocalChange(created.id, 'upsert');
+
+    const updated = engine.__store.updateEvent(created.id, {
+      recurringMonthDays: [5, 20],
+      recurringType: 'monthly',
+    });
+    assert.ok(updated);
+    assert.deepEqual(updated.recurringMonthDays, [5, 20]);
+
+    const records = engine.__store.loadAllEvents();
+    assert.equal(records.filter((event) => event._uuid === updated._uuid).length, 1);
+    assert.equal(records.filter((event) => event.event === '每月账单').length, 1);
+
+    engine.noteLocalChange(updated.id, 'upsert');
+    assert.equal(engine.queue.length, 1);
+    assert.deepEqual(engine.queue[0].data.recurringMonthDays, [5, 20]);
+    assert.equal(engine.queue[0].data.event, '每月账单');
+
+    await engine.flushPush();
+    assert.equal(engine.queue.length, 0);
+    const serverEvent = engine.__api.events.get(updated._uuid);
+    assert.deepEqual(serverEvent.data.recurringMonthDays, [5, 20]);
+
+    const reloaded = new EventStore({ dataDir: engine.__dataDir });
+    const persisted = reloaded.getEvent(updated.id);
+    assert.deepEqual(persisted.recurringMonthDays, [5, 20]);
+    assert.equal(reloaded.loadEvents().filter((event) => event.event === '每月账单').length, 1);
+    assert.equal(reloaded.getEventsByDate('2026-08-05').length, 1);
+    assert.equal(reloaded.getEventsByDate('2026-08-06').length, 0);
+  });
+});

@@ -706,6 +706,30 @@ body[data-theme="dark"] .mini-day.selected {
   color: #fff;
 }
 
+.monthday-picker .weekday-chip {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+.timer-progress {
+  display: block;
+  height: 4px;
+  margin: 5px 0 1px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.timer-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.6s linear;
+}
+
 .focus-button.active {
   color: var(--primary);
   border-color: color-mix(in srgb, var(--primary), transparent 55%);
