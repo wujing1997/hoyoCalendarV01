@@ -132,7 +132,11 @@ class SyncEngine {
     } else if (raw && typeof raw === 'object') {
       if (Array.isArray(raw.queue)) candidates = raw.queue;
       else if (Array.isArray(raw.items)) candidates = raw.items;
-      else candidates = Object.values(raw);
+      else if (typeof raw.eventId === 'string' && typeof raw.operationId === 'string') {
+        candidates = [raw];
+      } else {
+        candidates = Object.values(raw);
+      }
     }
 
     const entries = candidates.map(sanitizeQueueEntry).filter((entry) => entry !== null);

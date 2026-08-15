@@ -582,6 +582,47 @@ test('wrapper-object sync-queue recovers the nested queue array', () => {
   });
 });
 
+test('flat single-entry object sync-queue is recovered losslessly and re-pushed', async () => {
+  const flat = validQueueEntry('ffffffff-ffff-4fff-8fff-ffffffffffff', 'op-flat-1', { attempts: 5, nextRetryAt: 0 });
+  await engineWithQueueFile(JSON.stringify(flat), async (engine, dataDir) => {
+    assert.equal(engine.queue.length, 1);
+    assert.equal(engine.queue[0].eventId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
+    assert.equal(engine.queue[0].operationId, 'op-flat-1');
+    assert.equal(engine.queue[0].data.event, '遗留任务');
+    assert.equal(engine.queue[0].attempts, 5);
+    assert.equal(queueBackupFiles(dataDir).length, 1);
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'sync-queue.json'), 'utf8'));
+    assert.ok(Array.isArray(onDisk));
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    await engine.flushPush();
+    assert.equal(engine.queue.length, 0);
+    assert.equal(engine.__api.events.get('ffffffff-ffff-4fff-8fff-ffffffffffff').data.event, '遗留任务');
+  });
+});
+
+test('flat single-entry object with numeric legacy id fields still loads without crashing', () => {
+  engineWithQueueFile(
+    JSON.stringify({
+      eventId: '11111111-1111-4111-8111-111111111111',
+      operationId: 'op-numeric-1',
+      op: 'upsert',
+      version: 2,
+      baseVersion: 1,
+      attempts: 5,
+      nextRetryAt: 1786643616183,
+    }),
+    (engine, dataDir) => {
+      assert.equal(engine.queue.length, 1);
+      assert.equal(engine.queue[0].version, 2);
+      assert.equal(engine.queue[0].baseVersion, 1);
+      assert.equal(engine.queue[0].attempts, 5);
+      assert.equal(engine.queue[0].nextRetryAt, 1786643616183);
+      assert.equal(queueBackupFiles(dataDir).length, 1);
+    },
+  );
+});
+
 test('sync-queue with malformed entries keeps only valid ones and backs up', () => {
   const good = validQueueEntry('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'op-good-1');
   engineWithQueueFile(JSON.stringify([good, null, 'junk', {}, { eventId: '' }]), (engine, dataDir) => {
