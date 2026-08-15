@@ -1704,7 +1704,7 @@
     $('#windowModeSelect').value = state.windowState.mode || 'wide';
     $('#autoLaunchToggle').checked = Boolean(await window.electronAPI?.getAutoLaunch());
     const version = await window.electronAPI?.getAppVersion();
-    $('#appVersion').textContent = `V${version || '3.0.2'}`;
+    $('#appVersion').textContent = `V${version || '3.0.3'}`;
     openOverlay('settingsOverlay');
   }
 
