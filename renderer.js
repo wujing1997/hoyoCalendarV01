@@ -264,6 +264,11 @@
 
   function detailTypeText(event) {
     const calendar = escapeHtml(event.calendar || '个人');
+    if (event.isLongTerm) {
+      const start = parseDateKey(event.startDate || event.date);
+      const dateText = formatDate(start, { year: 'numeric', month: 'long', day: 'numeric' });
+      return `长期任务 · 开始 ${dateText} · ${calendar}`;
+    }
     if (event.isDeadline) {
       const deadline = parseDateKey(event.deadlineDate || event.startDate || event.date);
       const dateText = formatDate(deadline, { year: 'numeric', month: 'long', day: 'numeric' });
@@ -509,7 +514,7 @@
 
   function timerBarMarkup(event) {
     const record = timerRecordFor(event);
-    const total = Math.max(1, Number(event.targetDurationMinutes) * 60);
+    const total = Math.max(1, targetDurationSecondsFor(event));
     const used = elapsedSeconds(record);
     const completed = Boolean(event.isCompleted);
     const pct = completed ? 100 : Math.min(100, Math.round((used / total) * 100));
@@ -528,15 +533,34 @@
     `;
   }
 
+  function timerRowControl(event) {
+    if (!targetDurationSecondsFor(event)) {
+      return '<span class="timer-row-spacer" aria-hidden="true"></span>';
+    }
+    const record = timerRecordFor(event);
+    const running = Boolean(record?.runningSince);
+    const label = running ? '暂停专注' : '开始专注';
+    return `
+      <button
+        class="timer-row-button ${running ? 'running' : ''}"
+        data-task-timer="${escapeHtml(event.id)}"
+        title="${label}"
+        aria-label="${escapeHtml(event.event)}${label}"
+        aria-pressed="${running}"
+      >${icon(running ? 'pause' : 'play')}</button>
+    `;
+  }
+
   function renderTaskRow(event) {
     const completed = Boolean(event.isCompleted);
     const selected = String(event.id) === String(state.selectedEventId);
     const status = statusForEvent(event);
     const metadata = [];
-    if (event.targetDurationMinutes) {
+    const targetSeconds = targetDurationSecondsFor(event);
+    if (targetSeconds) {
       metadata.push(`
         <span class="meta-item meta-duration">
-          ${icon('timer')} ${event.targetDurationMinutes} 分钟
+          ${icon('timer')} 目标 ${formatElapsed(targetSeconds)}
         </span>
       `);
     }
@@ -573,9 +597,10 @@
         <span class="task-time ${event.time ? '' : 'all-day'}">${event.time || '全天'}</span>
         <button class="task-body" data-task-select="${escapeHtml(event.id)}">
           <span class="task-title">${escapeHtml(event.event)}</span>
-          ${event.targetDurationMinutes ? timerBarMarkup(event) : ''}
+          ${targetSeconds ? timerBarMarkup(event) : ''}
           ${metadata.length ? `<span class="task-meta">${metadata.join('')}</span>` : ''}
         </button>
+        ${timerRowControl(event)}
         ${status && !completed
           ? `<span class="task-status ${status.className}">${status.text}</span>`
           : '<span class="task-status-spacer" aria-hidden="true"></span>'}
@@ -661,7 +686,7 @@
   }
 
   function timerRecordFor(event) {
-    if (!event?.targetDurationMinutes || !apiAvailable()) return null;
+    if (!targetDurationSecondsFor(event) || !apiAvailable()) return null;
     return window.eventAPI.getTimerRecord(event.id, dateKey(state.selectedDate));
   }
 
@@ -679,11 +704,35 @@
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
   }
 
+  function targetDurationSecondsFor(event) {
+    const seconds = Number(event.targetDurationSeconds);
+    if (Number.isFinite(seconds) && seconds > 0) return Math.floor(seconds);
+    const minutes = Number(event.targetDurationMinutes);
+    return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes * 60) : 0;
+  }
+
+  function formatDurationInput(seconds) {
+    if (!seconds || seconds <= 0) return '';
+    return formatElapsed(Math.floor(seconds));
+  }
+
+  function parseDurationInput(value) {
+    const text = String(value || '').trim();
+    if (!text) return 0;
+    const parts = text.split(':').map((part) => Number(part));
+    if (!parts.length || parts.some((part) => !Number.isFinite(part) || part < 0)) return 0;
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    return parts[0];
+  }
+
   function detailMarkup(event, mobile = false) {
     if (!event) {
       return '<div class="detail-empty">选择一项任务后，可在这里直接修改安排和任务规则。</div>';
     }
-    const type = event.isDeadline ? 'deadline' : (event.isRecurring ? 'recurring' : 'normal');
+    const type = event.isLongTerm
+      ? 'longterm'
+      : (event.isDeadline ? 'deadline' : (event.isRecurring ? 'recurring' : 'normal'));
     const baseDate = event.startDate || event.date || dateKey(state.selectedDate);
     const monthDays = Array.isArray(event.recurringMonthDays) && event.recurringMonthDays.length
       ? event.recurringMonthDays
@@ -727,11 +776,11 @@
             <span>目标时长</span>
             <input
               class="detail-input"
-              name="targetDurationMinutes"
-              type="number"
-              min="0"
-              step="5"
-              value="${event.targetDurationMinutes || 0}"
+              name="targetDuration"
+              type="text"
+              inputmode="numeric"
+              placeholder="时:分:秒，如 01:30:00"
+              value="${formatDurationInput(targetDurationSecondsFor(event))}"
             >
           </label>
           <label class="detail-field">
@@ -764,6 +813,7 @@
               <option value="normal" ${type === 'normal' ? 'selected' : ''}>普通任务</option>
               <option value="recurring" ${type === 'recurring' ? 'selected' : ''}>重复任务</option>
               <option value="deadline" ${type === 'deadline' ? 'selected' : ''}>Deadline</option>
+              <option value="longterm" ${type === 'longterm' ? 'selected' : ''}>长期任务</option>
             </select>
           </label>
           <label class="detail-field" data-recurring-field ${type === 'recurring' ? '' : 'hidden'}>
@@ -999,19 +1049,21 @@
     const values = Object.fromEntries(new FormData(form).entries());
     const type = values.type;
     const date = values.date || dateKey(state.selectedDate);
+    const targetSeconds = parseDurationInput(values.targetDuration);
     const updates = {
       event: values.event.trim() || '未命名任务',
       time: values.time || '',
       location: values.location.trim(),
       note: values.note,
       calendar: values.calendar,
-      targetDurationMinutes: Number(values.targetDurationMinutes) || 0,
+      targetDurationSeconds: targetSeconds,
     };
 
     if (type === 'deadline') {
       Object.assign(updates, {
         isDeadline: true,
         isRecurring: false,
+        isLongTerm: false,
         date,
         startDate: date,
         deadlineDate: values.deadlineDate || date,
@@ -1028,6 +1080,7 @@
       Object.assign(updates, {
         isDeadline: false,
         isRecurring: true,
+        isLongTerm: false,
         date,
         startDate: date,
         endDate: values.endDate || dateKey(addDays(parseDateKey(date), 30)),
@@ -1036,10 +1089,22 @@
         recurringMonthDays: recurringType === 'monthly' ? selectedMonthDays : [],
         completedDates: source.completedDates || [],
       });
+    } else if (type === 'longterm') {
+      Object.assign(updates, {
+        isDeadline: false,
+        isRecurring: false,
+        isLongTerm: true,
+        date,
+        startDate: date,
+        isCompleted: source.isCompleted || false,
+        completedDate: source.completedDate,
+        completedAt: source.completedAt,
+      });
     } else {
       Object.assign(updates, {
         isDeadline: false,
         isRecurring: false,
+        isLongTerm: false,
         date,
         isCompleted: source.isCompleted || false,
       });
@@ -1067,6 +1132,7 @@
     const record = window.eventAPI.getTimerRecord(id, date);
     if (record?.runningSince) window.eventAPI.stopTimer(id, date);
     else window.eventAPI.startTimer(id, date);
+    renderCurrentView();
     renderDetails();
     refreshIcons();
   }
@@ -1875,7 +1941,7 @@
     $('#windowModeSelect').value = state.windowState.mode || 'wide';
     $('#autoLaunchToggle').checked = Boolean(await window.electronAPI?.getAutoLaunch());
     const version = await window.electronAPI?.getAppVersion();
-    $('#appVersion').textContent = `V${version || '3.0.3'}`;
+    $('#appVersion').textContent = `V${version || '3.0.4'}`;
     openOverlay('settingsOverlay');
   }
 
@@ -1924,6 +1990,11 @@
     const toggle = event.target.closest('[data-task-toggle]');
     if (toggle) {
       toggleTask(toggle.dataset.taskToggle);
+      return;
+    }
+    const rowTimer = event.target.closest('[data-task-timer]');
+    if (rowTimer) {
+      toggleTimer(rowTimer.dataset.taskTimer);
       return;
     }
     const select = event.target.closest('[data-task-select]');

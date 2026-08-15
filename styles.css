@@ -730,6 +730,43 @@ body[data-theme="dark"] .mini-day.selected {
   transition: width 0.6s linear;
 }
 
+.timer-row-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.timer-row-button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.timer-row-button.running {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.timer-row-button .lucide {
+  width: 15px;
+  height: 15px;
+}
+
+.timer-row-spacer {
+  display: block;
+  width: 30px;
+  height: 30px;
+}
+
 .focus-button.active {
   color: var(--primary);
   border-color: color-mix(in srgb, var(--primary), transparent 55%);
@@ -808,7 +845,7 @@ body[data-theme="dark"] .mini-day.selected {
 .task-row {
   min-height: 62px;
   display: grid;
-  grid-template-columns: 30px 58px minmax(0, 1fr) auto 32px;
+  grid-template-columns: 30px 58px minmax(0, 1fr) 34px auto 32px;
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--border);
@@ -2121,7 +2158,7 @@ body[data-theme="dark"] .month-day.today .month-day-number {
 
   .task-row {
     min-height: 56px;
-    grid-template-columns: 28px 46px minmax(0, 1fr) auto 28px;
+    grid-template-columns: 28px 46px minmax(0, 1fr) 30px auto 28px;
     gap: 5px;
   }
 

@@ -232,7 +232,7 @@ test('recurrence label shows monthly day numbers', () => {
 test('task rows render a focus-timer progress bar between title and meta', () => {
   assert.match(
     rendererSource,
-    /\$\{event\.targetDurationMinutes \? timerBarMarkup\(event\) : ''\}/,
+    /\$\{targetSeconds \? timerBarMarkup\(event\) : ''\}/,
   );
   assert.match(rendererSource, /data-timer-progress/);
   assert.match(rendererSource, /class="timer-progress-fill" style="width: \$\{pct\}%"/);
@@ -241,7 +241,7 @@ test('task rows render a focus-timer progress bar between title and meta', () =>
 test('progress bar reads persisted timer state and caps at 100%', () => {
   assert.match(
     rendererSource,
-    /const total = Math\.max\(1, Number\(event\.targetDurationMinutes\) \* 60\);/,
+    /const total = Math\.max\(1, targetDurationSecondsFor\(event\)\);/,
   );
   assert.match(
     rendererSource,
@@ -265,6 +265,70 @@ test('timer tick updates progress fills in real time and stops when paused', () 
   );
   assert.match(rendererSource, /fill\.style\.width = `\$\{pct\}%`;/);
   assert.match(rendererSource, /setInterval\(updateTimerReadouts, 1000\)/);
+});
+
+// ------------------------------------------------------------------ long-term tasks & row timer control
+
+test('detail dialog offers the long-term task type', () => {
+  assert.match(rendererSource, /<option value="longterm" \$\{type === 'longterm' \? 'selected' : ''\}>长期任务<\/option>/);
+  assert.match(
+    rendererSource,
+    /const type = event\.isLongTerm\s*\n\s*\? 'longterm'\s*\n\s*: \(event\.isDeadline \? 'deadline' : \(event\.isRecurring \? 'recurring' : 'normal'\)\);/,
+  );
+});
+
+test('long-term tasks are labelled with their start date', () => {
+  assert.match(
+    rendererSource,
+    /if \(event\.isLongTerm\) \{\s*const start = parseDateKey\(event\.startDate \|\| event\.date\);/,
+  );
+  assert.match(rendererSource, /return `长期任务 · 开始 \$\{dateText\} · \$\{calendar\}`;/);
+});
+
+test('saving a long-term task persists the flag and clears other types', () => {
+  assert.match(
+    rendererSource,
+    /else if \(type === 'longterm'\) \{\s*Object\.assign\(updates, \{\s*isDeadline: false,\s*isRecurring: false,\s*isLongTerm: true,/,
+  );
+  assert.match(rendererSource, /isLongTerm: false,\s*date,/);
+});
+
+test('target duration input is HH:MM:SS and parses back to seconds', () => {
+  assert.match(rendererSource, /name="targetDuration"[\s\S]*?type="text"/);
+  assert.match(rendererSource, /placeholder="时:分:秒，如 01:30:00"/);
+  assert.match(rendererSource, /const targetSeconds = parseDurationInput\(values\.targetDuration\);/);
+  assert.match(rendererSource, /targetDurationSeconds: targetSeconds,/);
+});
+
+test('duration helpers convert between seconds and 时:分:秒', () => {
+  assert.match(rendererSource, /function formatDurationInput\(seconds\) \{[\s\S]*?return formatElapsed\(Math\.floor\(seconds\)\);/);
+  assert.match(rendererSource, /function parseDurationInput\(value\) \{[\s\S]*?if \(parts\.length === 3\) return parts\[0\] \* 3600 \+ parts\[1\] \* 60 \+ parts\[2\];/);
+  assert.match(rendererSource, /if \(parts\.length === 2\) return parts\[0\] \* 60 \+ parts\[1\];/);
+  assert.match(rendererSource, /function targetDurationSecondsFor\(event\) \{[\s\S]*?return Number\.isFinite\(minutes\) && minutes > 0 \? Math\.round\(minutes \* 60\) : 0;/);
+});
+
+test('task rows show a fixed start/pause control for tasks with a focus target', () => {
+  assert.match(rendererSource, /timerRowControl\(event\)/);
+  assert.match(rendererSource, /data-task-timer="\$\{escapeHtml\(event\.id\)\}"/);
+  assert.match(rendererSource, /'<span class="timer-row-spacer" aria-hidden="true"><\/span>'/);
+  assert.match(rendererSource, /icon\(running \? 'pause' : 'play'\)/);
+});
+
+test('row timer button click toggles the shared timer state', () => {
+  assert.match(
+    rendererSource,
+    /const rowTimer = event\.target\.closest\('\[data-task-timer\]'\);\s*if \(rowTimer\) \{\s*toggleTimer\(rowTimer\.dataset\.taskTimer\);/,
+  );
+});
+
+test('task meta shows the target duration in 时:分:秒', () => {
+  assert.match(rendererSource, /\$\{icon\('timer'\)\} 目标 \$\{formatElapsed\(targetSeconds\)\}/);
+});
+
+test('task row grid reserves a fixed column for the timer control', () => {
+  assert.match(stylesSource, /grid-template-columns: 30px 58px minmax\(0, 1fr\) 34px auto 32px;/);
+  assert.match(stylesSource, /\.timer-row-button \{/);
+  assert.match(stylesSource, /\.timer-row-spacer \{/);
 });
 
 // ------------------------------------------------------------------ login persistence wiring

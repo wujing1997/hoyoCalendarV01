@@ -884,6 +884,55 @@ test('editing a recurring rule updates the series record once and re-queues with
   });
 });
 
+test('long-term tasks sync their global focus fields and target seconds', async () => {
+  await withEngine({}, async (engine) => {
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    const created = engine.__store.addEvent({
+      event: '备考',
+      date: '2026-08-10',
+      startDate: '2026-08-10',
+      isLongTerm: true,
+      targetDurationSeconds: 7200,
+      focusTotalSeconds: 3661,
+    });
+    engine.__store.ensureSyncMetadata();
+    engine.noteLocalChange(created.id, 'upsert');
+    assert.equal(engine.queue.length, 1);
+    assert.equal(engine.queue[0].data.isLongTerm, true);
+    assert.equal(engine.queue[0].data.targetDurationSeconds, 7200);
+    assert.equal(engine.queue[0].data.targetDurationMinutes, 120);
+    assert.equal(engine.queue[0].data.focusTotalSeconds, 3661);
+
+    await engine.flushPush();
+    assert.equal(engine.queue.length, 0);
+    const serverEvent = engine.__api.events.get(created._uuid);
+    assert.equal(serverEvent.data.isLongTerm, true);
+    assert.equal(serverEvent.data.focusTotalSeconds, 3661);
+    assert.equal(serverEvent.data.targetDurationSeconds, 7200);
+  });
+});
+
+test('legacy minute-only events keep per-day timer behavior and sync unchanged', async () => {
+  await withEngine({}, async (engine) => {
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    const created = engine.__store.addEvent({ event: '旧任务', date: '2026-08-10', targetDurationMinutes: 30 });
+    engine.__store.ensureSyncMetadata();
+    engine.noteLocalChange(created.id, 'upsert');
+    assert.equal(engine.queue[0].data.targetDurationMinutes, 30);
+    assert.equal(engine.queue[0].data.targetDurationSeconds, undefined);
+    assert.equal(engine.queue[0].data.isLongTerm, undefined);
+
+    engine.__store.updateTimer(created.id, '2026-08-10', true);
+    engine.__store.updateTimer(created.id, '2026-08-10', false);
+    assert.ok(engine.__store.getTimerRecord(created.id, '2026-08-10').elapsedSeconds >= 0);
+    const stored = engine.__store.getEvent(created.id);
+    assert.ok(stored.timerRecords?.['2026-08-10']);
+    assert.equal(stored.focusTotalSeconds, undefined);
+  });
+});
+
 test('editing monthly day numbers updates one series record, sync payload and survives reload', async () => {
   await withEngine({}, async (engine) => {
     engine.account = { userId: 'u1', email: 'a@b.c' };
