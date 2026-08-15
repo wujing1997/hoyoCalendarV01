@@ -175,6 +175,180 @@ test('recurringMonthDays are normalized, deduped and clamped to 1-31', () => {
   });
 });
 
+// ------------------------------------------------------------------ long-term tasks
+
+test('long-term tasks appear every day from start until completion, same id', () => {
+  withStore((store) => {
+    const event = store.addEvent({
+      event: '备考',
+      date: '2026-08-10',
+      startDate: '2026-08-10',
+      isLongTerm: true,
+    });
+    assert.equal(event.isLongTerm, true);
+    for (const day of ['2026-08-10', '2026-08-11', '2026-09-01', '2026-12-31']) {
+      const instances = store.getEventsByDate(day);
+      assert.equal(instances.length, 1, `${day} should show the long-term task`);
+      assert.equal(instances[0].id, event.id);
+      assert.equal(instances[0].isLongTermInstance, undefined);
+    }
+    assert.equal(store.getEventsByDate('2026-08-09').length, 0);
+  });
+});
+
+test('completed long-term tasks stay on the completion day and vanish from future dates', () => {
+  withStore((store) => {
+    const event = store.addEvent({
+      event: '备考',
+      date: '2026-08-10',
+      startDate: '2026-08-10',
+      isLongTerm: true,
+    });
+    store.toggleComplete(event.id, '2026-08-20');
+    const completed = store.getEventsByDate('2026-08-20');
+    assert.equal(completed.length, 1);
+    assert.equal(completed[0].isCompleted, true);
+    assert.equal(store.getEventsByDate('2026-08-21').length, 0);
+    assert.equal(store.getEventsByDate('2026-08-19').length, 1);
+    const restored = store.toggleComplete(event.id, '2026-08-20');
+    assert.equal(restored.isCompleted, false);
+    assert.equal(store.getEventsByDate('2026-08-21').length, 1);
+  });
+});
+
+test('long-term flag is mutually exclusive with deadline and recurring fields', () => {
+  withStore((store) => {
+    const event = store.addEvent({
+      event: '长期项目',
+      date: '2026-08-10',
+      startDate: '2026-08-10',
+      isLongTerm: true,
+      isDeadline: true,
+      deadlineDate: '2026-09-01',
+      isRecurring: true,
+      recurringType: 'daily',
+      recurringDays: [1],
+      recurringMonthDays: [5],
+      completedDates: ['2026-08-11'],
+      focusTotalSeconds: 3600,
+      focusRunningSince: '2026-08-15T10:00:00.000Z',
+    });
+    assert.equal(event.isLongTerm, true);
+    assert.equal(event.isDeadline, undefined);
+    assert.equal(event.isRecurring, undefined);
+    assert.equal(event.recurringDays, undefined);
+    assert.equal(event.recurringMonthDays, undefined);
+    assert.equal(event.completedDates, undefined);
+    assert.equal(event.focusTotalSeconds, 3600);
+    assert.equal(event.focusRunningSince, '2026-08-15T10:00:00.000Z');
+
+    const normal = store.addEvent({
+      event: '普通任务',
+      date: '2026-08-10',
+      isLongTerm: false,
+      focusTotalSeconds: 120,
+      focusRunningSince: 'bad-date',
+      isCompleted: false,
+    });
+    assert.equal(normal.isLongTerm, undefined);
+    assert.equal(normal.focusTotalSeconds, undefined);
+    assert.equal(normal.focusRunningSince, undefined);
+  });
+});
+
+test('focus fields are sanitized and target duration derives minutes from seconds', () => {
+  withStore((store) => {
+    const event = store.addEvent({
+      event: '健身',
+      date: '2026-08-10',
+      startDate: '2026-08-10',
+      isLongTerm: true,
+      targetDurationSeconds: 5430,
+      focusTotalSeconds: -5,
+      focusRunningSince: 'not-a-date',
+    });
+    assert.equal(event.targetDurationSeconds, 5430);
+    assert.equal(event.targetDurationMinutes, 91);
+    assert.equal(event.focusTotalSeconds, 0);
+    assert.equal(event.focusRunningSince, null);
+
+    const legacy = store.addEvent({
+      event: '旧任务',
+      date: '2026-08-10',
+      targetDurationMinutes: 30,
+    });
+    assert.equal(legacy.targetDurationMinutes, 30);
+    assert.equal(legacy.targetDurationSeconds, undefined);
+  });
+});
+
+test('long-term focus timer accumulates across days without touching per-day records', () => {
+  withStore((store) => {
+    const event = store.addEvent({
+      event: '备考',
+      date: '2026-08-10',
+      startDate: '2026-08-10',
+      isLongTerm: true,
+    });
+    const start = Date.now();
+    store.updateTimer(event.id, '2026-08-10', true);
+    store.updateTimer(event.id, '2026-08-10', false);
+    const first = store.getTimerRecord(event.id, '2026-08-10');
+    assert.ok(first.elapsedSeconds >= 0);
+    assert.equal(first.runningSince, null);
+
+    store.updateTimer(event.id, '2026-08-12', true);
+    store.updateTimer(event.id, '2026-08-12', false);
+    const second = store.getTimerRecord(event.id, '2026-08-12');
+    assert.ok(second.elapsedSeconds >= first.elapsedSeconds);
+    assert.equal(store.getTimerRecord(event.id, '2026-08-11').elapsedSeconds, second.elapsedSeconds);
+    const persisted = store.getEvent(event.id);
+    assert.ok(persisted.focusTotalSeconds >= 0);
+    assert.equal(persisted.focusRunningSince, null);
+    assert.deepEqual(persisted.timerRecords || {}, {});
+    assert.ok(Date.now() - start < 100000);
+  });
+});
+
+test('normal tasks keep per-day timer behavior', () => {
+  withStore((store) => {
+    const event = store.addEvent({ event: '会议', date: '2026-08-10', targetDurationMinutes: 30 });
+    store.updateTimer(event.id, '2026-08-10', true);
+    store.updateTimer(event.id, '2026-08-10', false);
+    assert.ok(store.getTimerRecord(event.id, '2026-08-10').elapsedSeconds >= 0);
+    assert.equal(store.getTimerRecord(event.id, '2026-08-11').elapsedSeconds, 0);
+    const persisted = store.getEvent(event.id);
+    assert.ok(persisted.timerRecords?.['2026-08-10']);
+    assert.equal(persisted.focusTotalSeconds, undefined);
+  });
+});
+
+test('long-term focus state survives a store restart', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoyo-longterm-'));
+  try {
+    const first = new EventStore({ dataDir });
+    const event = first.addEvent({
+      event: '备考',
+      date: '2026-08-10',
+      startDate: '2026-08-10',
+      isLongTerm: true,
+      targetDurationSeconds: 7200,
+    });
+    first.updateTimer(event.id, '2026-08-10', true);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    first.updateTimer(event.id, '2026-08-10', false);
+
+    const second = new EventStore({ dataDir });
+    const reloaded = second.getEvent(event.id);
+    assert.equal(reloaded.isLongTerm, true);
+    assert.equal(reloaded.targetDurationSeconds, 7200);
+    assert.ok(reloaded.focusTotalSeconds > 0);
+    assert.equal(second.getEventsByDate('2026-08-11').length, 1);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('command router executes common creation and query locally', () => {
   withStore((store) => {
     const today = new Date();

@@ -87,6 +87,38 @@ class EventStore {
     if (targetDuration) event.targetDurationMinutes = Math.round(targetDuration);
     else delete event.targetDurationMinutes;
 
+    this.normalizeTargetDuration(event);
+
+    if (event.isLongTerm) {
+      const startDate = this.validDate(event.startDate || event.date) || today;
+      event.isLongTerm = true;
+      event.date = startDate;
+      event.startDate = startDate;
+      event.isCompleted = Boolean(event.isCompleted || event.completed);
+      if (event.isCompleted) {
+        const completedAtDate = event.completedAt
+          ? this.validDate(new Date(event.completedAt))
+          : '';
+        event.completedDate = this.validDate(event.completedDate) || completedAtDate || startDate;
+      } else {
+        delete event.completedAt;
+        delete event.completedDate;
+      }
+      event.focusTotalSeconds = Math.max(0, Math.floor(Number(event.focusTotalSeconds) || 0));
+      event.focusRunningSince = this.validIsoTime(event.focusRunningSince) ? event.focusRunningSince : null;
+      delete event.completed;
+      delete event.isDeadline;
+      delete event.deadlineDate;
+      delete event.isDeadlineCompleted;
+      delete event.deadlineCompletedDate;
+      delete event.isRecurring;
+      delete event.recurringType;
+      delete event.recurringDays;
+      delete event.recurringMonthDays;
+      delete event.completedDates;
+      return event;
+    }
+
     if (event.isDeadline) {
       const startDate = this.validDate(event.startDate || event.date) || today;
       const deadlineDate = this.validDate(event.deadlineDate || event.endDate || event.date) || startDate;
@@ -105,6 +137,9 @@ class EventStore {
       delete event.completedDates;
       delete event.isCompleted;
       delete event.completedDate;
+      delete event.isLongTerm;
+      delete event.focusTotalSeconds;
+      delete event.focusRunningSince;
       return event;
     }
 
@@ -139,6 +174,9 @@ class EventStore {
       delete event.isCompleted;
       delete event.completedDate;
       delete event.completedAt;
+      delete event.isLongTerm;
+      delete event.focusTotalSeconds;
+      delete event.focusRunningSince;
       return event;
     }
 
@@ -164,7 +202,27 @@ class EventStore {
     delete event.recurringType;
     delete event.recurringDays;
     delete event.completedDates;
+    delete event.isLongTerm;
+    delete event.focusTotalSeconds;
+    delete event.focusRunningSince;
     return event;
+  }
+
+  normalizeTargetDuration(event) {
+    const seconds = Number(event.targetDurationSeconds);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      event.targetDurationSeconds = Math.floor(seconds);
+      event.targetDurationMinutes = Math.round(event.targetDurationSeconds / 60);
+    } else if (event.targetDurationSeconds !== undefined) {
+      delete event.targetDurationSeconds;
+      delete event.targetDurationMinutes;
+    }
+  }
+
+  validIsoTime(value) {
+    if (typeof value !== 'string' || !value) return false;
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime());
   }
 
   normalizeTime(value) {
@@ -480,6 +538,16 @@ class EventStore {
     const result = [];
 
     for (const event of events) {
+      if (event.isLongTerm) {
+        if (event.isCompleted) {
+          const inHistory = date >= event.startDate && date <= event.completedDate;
+          if (inHistory) result.push(this.instanceForDate(event, date));
+        } else if (date >= event.startDate) {
+          result.push(this.instanceForDate(event, date));
+        }
+        continue;
+      }
+
       if (event.isDeadline) {
         const active = !event.isDeadlineCompleted
           && date >= event.startDate
@@ -599,6 +667,12 @@ class EventStore {
   getTimerRecord(id, dateStr) {
     const event = this.getEvent(id);
     if (!event) return null;
+    if (event.isLongTerm) {
+      return clone({
+        elapsedSeconds: Number(event.focusTotalSeconds) || 0,
+        runningSince: event.focusRunningSince || null,
+      });
+    }
     return clone(event.timerRecords?.[dateStr] || { elapsedSeconds: 0, runningSince: null });
   }
 
@@ -607,6 +681,29 @@ class EventStore {
     const index = events.findIndex((event) => String(event.id) === String(id) && !event._deleted);
     if (index < 0) return null;
     const event = events[index];
+
+    if (event.isLongTerm) {
+      const running = Boolean(event.focusRunningSince);
+      if (shouldRun && !running) {
+        event.focusRunningSince = new Date().toISOString();
+      } else if (!shouldRun && running) {
+        const startedAt = new Date(event.focusRunningSince).getTime();
+        const elapsed = Number.isFinite(startedAt)
+          ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+          : 0;
+        event.focusTotalSeconds = (Number(event.focusTotalSeconds) || 0) + elapsed;
+        event.focusRunningSince = null;
+      }
+      event.updatedAt = new Date().toISOString();
+      this.markChanged(event);
+      events[index] = this.normalizeEvent(event);
+      const record = {
+        elapsedSeconds: Number(events[index].focusTotalSeconds) || 0,
+        runningSince: events[index].focusRunningSince || null,
+      };
+      return this.saveEvents(events) ? clone(record) : null;
+    }
+
     event.timerRecords ||= {};
     const record = event.timerRecords[dateStr] || { elapsedSeconds: 0, runningSince: null };
 

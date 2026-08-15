@@ -111,7 +111,7 @@ function cleanTitle(text, tokens, options = {}) {
   }
   title = title
     .replace(/每周(?:周?[一二三四五六日天](?:和|、|,)?\s*)+/g, ' ')
-    .replace(/(?:请|帮我|麻烦|添加|新增|创建|安排|记下|提醒我)/g, ' ')
+    .replace(/(?:请|帮我|麻烦|添加|新增|创建|安排|记下|提醒我|长期任务)/g, ' ')
     .replace(/(?:每天|每日|每晚|每周|每月)/g, ' ')
     .replace(/[，,。！？!?]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -165,6 +165,7 @@ function parseQuickCommand(input, options = {}) {
   const durationResult = parseDuration(text);
   const isDeadline = isDeadlineExpression(text);
   const isRecurring = !isDeadline && /(?:每天|每日|每晚|每周|每月)/.test(text);
+  const isLongTerm = !isDeadline && !isRecurring && /长期任务/.test(text);
   const recurringType = /每周/.test(text) ? 'weekly' : (/每月/.test(text) ? 'monthly' : 'daily');
   const recurringDays = [];
   if (recurringType === 'weekly') {
@@ -208,7 +209,10 @@ function parseQuickCommand(input, options = {}) {
   };
 
   if (durationResult.minutes > 0) event.targetDurationMinutes = durationResult.minutes;
-  if (isDeadline) {
+  if (isLongTerm) {
+    event.isLongTerm = true;
+    event.startDate = targetDate;
+  } else if (isDeadline) {
     event.isDeadline = true;
     event.startDate = formatDate(now);
     event.deadlineDate = targetDate;
@@ -232,6 +236,7 @@ function parseQuickCommand(input, options = {}) {
       duration: durationResult.minutes,
       deadline: isDeadline,
       recurring: isRecurring,
+      longTerm: isLongTerm,
     },
     requiresAgent: false,
   };
