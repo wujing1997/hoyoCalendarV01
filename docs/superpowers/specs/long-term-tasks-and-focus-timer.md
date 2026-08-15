@@ -50,11 +50,13 @@
 ## 3. 显示语义(`eventsForDate` 新增 isLongTerm 分支)
 
 ```
-active        = !isCompleted && date >= startDate      // 每天显示,同一条(同 ID 派生实例)
-completedHere = isCompleted && completedDate === date  // 完成日历史保留
+active        = !isCompleted && date >= startDate            // 每天显示,同一条(同 ID 派生实例)
+completedHere = isCompleted && startDate <= date <= completedDate  // 完成日及此前全部历史保留
 ```
 
-- 无 deadline、无 overdue 语义;完成后的未来日期不再出现。
+- 未完成:自开始日起每天显示;完成后:开始日→完成日的全部日期保留(已完成实例),
+  完成后的未来日期不再出现。
+- 无 deadline、无 overdue 语义。
 - `toggleComplete` 走普通分支(设置/清除 isCompleted + completedDate)。
 
 ## 4. 主界面交互
