@@ -66,6 +66,39 @@ function monthEnd(value) {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
 
+function viewRange(view, value) {
+  const date = startOfDay(value);
+  if (view === 'week') {
+    const start = weekStart(date);
+    return { start, end: addDays(start, 6) };
+  }
+  if (view === 'month') {
+    return { start: monthStart(date), end: monthEnd(date) };
+  }
+  return { start: date, end: date };
+}
+
+function viewRangeIncludesDate(view, value, target) {
+  const { start, end } = viewRange(view, value);
+  const targetDate = startOfDay(target);
+  return targetDate >= start && targetDate <= end;
+}
+
+function viewRangeTitle(view, value) {
+  const { start, end } = viewRange(view, value);
+  const monthDay = (date) => `${date.getMonth() + 1}月${date.getDate()}日`;
+  if (view === 'month') {
+    return `${start.getFullYear()}年${start.getMonth() + 1}月`;
+  }
+  if (view === 'week') {
+    if (start.getFullYear() !== end.getFullYear()) {
+      return `${start.getFullYear()}年${monthDay(start)} – ${end.getFullYear()}年${monthDay(end)}`;
+    }
+    return `${start.getFullYear()}年${monthDay(start)} – ${monthDay(end)}`;
+  }
+  return `${start.getFullYear()}年${monthDay(start)}`;
+}
+
 module.exports = {
   DAY_MS,
   addDays,
@@ -76,5 +109,8 @@ module.exports = {
   monthStart,
   parseDate,
   startOfDay,
+  viewRange,
+  viewRangeIncludesDate,
+  viewRangeTitle,
   weekStart,
 };

@@ -663,6 +663,20 @@ body[data-theme="dark"] .mini-day.selected {
   display: none;
 }
 
+.return-today-button {
+  visibility: hidden;
+  flex: 0 0 auto;
+}
+
+.return-today-button.visible {
+  visibility: visible;
+}
+
+.return-today-button .lucide {
+  width: 15px;
+  height: 15px;
+}
+
 .focus-button.active {
   color: var(--primary);
   border-color: color-mix(in srgb, var(--primary), transparent 55%);
@@ -2010,6 +2024,16 @@ body[data-theme="dark"] .month-day.today .month-day-number {
 
   .main-header-actions {
     gap: 4px;
+  }
+
+  .return-today-button {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .return-today-button span {
+    display: none;
   }
 
   .mobile-view-switch {

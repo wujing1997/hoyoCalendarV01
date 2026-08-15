@@ -378,6 +378,14 @@ contextBridge.exposeInMainWorld('configAPI', {
   },
 });
 
+const { viewRange, viewRangeIncludesDate, viewRangeTitle } = require('./src/core/date-utils');
+
+contextBridge.exposeInMainWorld('viewUtils', {
+  viewRange: (view, value) => viewRange(view, value),
+  viewRangeIncludesDate: (view, value, target) => viewRangeIncludesDate(view, value, target),
+  viewRangeTitle: (view, value) => viewRangeTitle(view, value),
+});
+
 contextBridge.exposeInMainWorld('lunarAPI', {
   isAvailable: () => Boolean(Lunar),
   fromSolar: (year, month, day) => {

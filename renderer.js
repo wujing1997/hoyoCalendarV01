@@ -53,6 +53,47 @@
     return addDays(date, -date.getDay());
   }
 
+  function monthEnd(value) {
+    const date = startOfDay(value);
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  }
+
+  function viewRangeFor(view, value) {
+    if (window.viewUtils?.viewRange) return window.viewUtils.viewRange(view, value);
+    const date = startOfDay(value);
+    if (view === 'week') {
+      const start = weekStart(date);
+      return { start, end: addDays(start, 6) };
+    }
+    if (view === 'month') return { start: monthStart(date), end: monthEnd(date) };
+    return { start: date, end: date };
+  }
+
+  function viewRangeTitleFor(view, value) {
+    if (window.viewUtils?.viewRangeTitle) return window.viewUtils.viewRangeTitle(view, value);
+    const { start, end } = viewRangeFor(view, value);
+    const monthDay = (date) => `${date.getMonth() + 1}月${date.getDate()}日`;
+    if (view === 'month') return `${start.getFullYear()}年${start.getMonth() + 1}月`;
+    if (view === 'week') {
+      if (start.getFullYear() !== end.getFullYear()) {
+        return `${start.getFullYear()}年${monthDay(start)} – ${end.getFullYear()}年${monthDay(end)}`;
+      }
+      return `${start.getFullYear()}年${monthDay(start)} – ${monthDay(end)}`;
+    }
+    return `${start.getFullYear()}年${monthDay(start)}`;
+  }
+
+  function viewRangeIncludesDateFor(view, value, target) {
+    if (window.viewUtils?.viewRangeIncludesDate) {
+      return window.viewUtils.viewRangeIncludesDate(view, value, target);
+    }
+    const { start, end } = viewRangeFor(view, value);
+    const targetDate = startOfDay(target);
+    return targetDate >= start && targetDate <= end;
+  }
+
+  const VIEW_RETURN_LABELS = { day: '今天', week: '本周', month: '本月' };
+
   function dateKey(value) {
     const date = startOfDay(value);
     const year = date.getFullYear();
@@ -205,9 +246,32 @@
 
   function recurrenceLabel(event) {
     if (!event.isRecurring) return '';
-    if (event.recurringType === 'weekly') return '每周';
+    if (event.recurringType === 'weekly') {
+      const days = (event.recurringDays || [])
+        .map((day) => SHORT_DAY_NAMES[Number(day)])
+        .filter(Boolean)
+        .join('、');
+      return days ? `每周${days}` : '每周';
+    }
     if (event.recurringType === 'monthly') return '每月';
     return '每天';
+  }
+
+  function detailTypeText(event) {
+    const calendar = escapeHtml(event.calendar || '个人');
+    if (event.isDeadline) {
+      const deadline = parseDateKey(event.deadlineDate || event.startDate || event.date);
+      const dateText = formatDate(deadline, { year: 'numeric', month: 'long', day: 'numeric' });
+      const timeText = event.time ? ` ${event.time}` : '';
+      return `Deadline · 截止 ${dateText}${timeText} · ${calendar}`;
+    }
+    if (event.isRecurring) {
+      const until = event.endDate
+        ? ` 至 ${formatDate(parseDateKey(event.endDate), { year: 'numeric', month: 'long', day: 'numeric' })}`
+        : '';
+      return `重复任务 · ${recurrenceLabel(event)}${until} · ${calendar}`;
+    }
+    return `普通任务 · ${calendar}`;
   }
 
   function eventNavigationDate(event) {
@@ -259,6 +323,7 @@
   function renderAll(options = {}) {
     if (options.reload !== false) loadEvents();
     renderTopbar();
+    renderViewControls();
     renderMiniCalendar();
     renderCompactWeek();
     renderSidebar();
@@ -268,6 +333,26 @@
     refreshIcons();
   }
 
+  function viewTitleText() {
+    const selected = state.selectedDate;
+    const base = viewRangeTitleFor(state.currentView, selected);
+    if (state.currentView !== 'day') return base;
+    const text = `${base} ${DAY_NAMES[selected.getDay()]}`;
+    return sameDay(selected, realToday) ? `今天 · ${text}` : text;
+  }
+
+  function renderViewControls() {
+    const button = $('#returnTodayButton');
+    if (!button) return;
+    const label = $('#returnTodayLabel');
+    const inRange = viewRangeIncludesDateFor(state.currentView, state.selectedDate, realToday);
+    const text = `返回${VIEW_RETURN_LABELS[state.currentView] || '今天'}`;
+    button.classList.toggle('visible', !inRange);
+    label.textContent = text;
+    button.setAttribute('aria-label', text);
+    button.setAttribute('title', text);
+  }
+
   function renderTopbar() {
     const selected = state.selectedDate;
     const isToday = sameDay(selected, realToday);
@@ -275,14 +360,12 @@
     const dateLabel = isToday
       ? compact
         ? `今天 ${selected.getMonth() + 1}/${selected.getDate()}`
-        : `今天 · ${formatDate(selected, { month: 'long', day: 'numeric' })}`
+        : `今天 · ${formatDate(selected, { year: 'numeric', month: 'long', day: 'numeric' })}`
       : compact
         ? `${selected.getMonth() + 1}/${selected.getDate()}`
-        : `${formatDate(selected, { month: 'long', day: 'numeric' })} ${DAY_NAMES[selected.getDay()]}`;
+        : `${formatDate(selected, { year: 'numeric', month: 'long', day: 'numeric' })} ${DAY_NAMES[selected.getDay()]}`;
     $('#dateTitleButton').textContent = dateLabel;
-    $('#mainDateTitle').textContent = isToday
-      ? `今天，${DAY_NAMES[selected.getDay()]}`
-      : `${formatDate(selected, { month: 'long', day: 'numeric' })}，${DAY_NAMES[selected.getDay()]}`;
+    $('#mainDateTitle').textContent = viewTitleText();
 
     const visible = getEventsForDate(dateKey(selected));
     const completed = visible.filter((event) => event.isCompleted).length;
@@ -593,7 +676,7 @@
               value="${escapeHtml(event.event)}"
               aria-label="任务标题"
             >
-            <div class="detail-type">${eventTypeLabel(event)} · ${escapeHtml(event.calendar || '个人')}</div>
+            <div class="detail-type">${detailTypeText(event)}</div>
           </div>
         </div>
 
@@ -1822,6 +1905,7 @@
     $('#previousDate').addEventListener('click', () => shiftDate(-1));
     $('#nextDate').addEventListener('click', () => shiftDate(1));
     $('#todayButton').addEventListener('click', () => selectDate(realToday, { view: 'day' }));
+    $('#returnTodayButton').addEventListener('click', () => selectDate(realToday));
     $('#dateTitleButton').addEventListener('click', () => {
       if (window.innerWidth <= 720) setView('month');
       else $('#miniDays .selected')?.focus();
