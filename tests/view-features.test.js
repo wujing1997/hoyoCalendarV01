@@ -331,6 +331,46 @@ test('task row grid reserves a fixed column for the timer control', () => {
   assert.match(stylesSource, /\.timer-row-spacer \{/);
 });
 
+// ------------------------------------------------------------------ live timer state (no stale snapshots)
+
+test('progress bars and readouts carry event identity for live refreshes', () => {
+  assert.match(rendererSource, /data-timer-event="\$\{escapeHtml\(event\.id\)\}"/);
+  assert.match(rendererSource, /data-timer-date="\$\{dateKey\(state\.selectedDate\)\}"/);
+  assert.match(rendererSource, /data-timer-event="\$\{escapeHtml\(event\.id\)\}"/);
+});
+
+test('timer tick reads the real timer record from the event store, not the render snapshot', () => {
+  assert.match(
+    rendererSource,
+    /function liveTimerState\(element\) \{[\s\S]*?const eventId = element\.dataset\.timerEvent;[\s\S]*?if \(eventId && window\.eventAPI\?\.getTimerRecord\) \{[\s\S]*?const record = window\.eventAPI\.getTimerRecord\(eventId, date\) \|\| \{\};/,
+  );
+  assert.match(
+    rendererSource,
+    /\$\$\('\.timer-readout'\)\.forEach\(\(element\) => \{\s*const \{ seconds \} = liveTimerState\(element\);/,
+  );
+  assert.match(
+    rendererSource,
+    /\$\$\('\[data-timer-progress\]'\)\.forEach\(\(element\) => \{\s*const \{ seconds, running \} = liveTimerState\(element\);/,
+  );
+});
+
+test('timer tick keeps the row start/pause button in sync with the real state', () => {
+  assert.match(
+    rendererSource,
+    /const rowButton = element\.closest\('\.task-row'\)\?\.querySelector\('\[data-task-timer\]'\);/,
+  );
+  assert.match(
+    rendererSource,
+    /function syncRowTimerButton\(button, running\) \{[\s\S]*?button\.classList\.toggle\('running', running\);[\s\S]*?button\.innerHTML = icon\(running \? 'pause' : 'play'\);/,
+  );
+});
+
+test('row timer button records its own event identity and running state', () => {
+  assert.match(rendererSource, /data-timer-event="\$\{escapeHtml\(event\.id\)\}"/);
+  assert.match(rendererSource, /data-timer-date="\$\{dateKey\(state\.selectedDate\)\}"/);
+  assert.match(rendererSource, /data-running="\$\{running\}"/);
+});
+
 // ------------------------------------------------------------------ login persistence wiring
 
 test('startup restores the session before sync can run', () => {

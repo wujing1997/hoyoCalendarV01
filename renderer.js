@@ -522,6 +522,8 @@
       <span
         class="timer-progress"
         data-timer-progress
+        data-timer-event="${escapeHtml(event.id)}"
+        data-timer-date="${dateKey(state.selectedDate)}"
         data-base-seconds="${Number(record?.elapsedSeconds) || 0}"
         data-running-since="${record?.runningSince || ''}"
         data-total-seconds="${total}"
@@ -544,6 +546,9 @@
       <button
         class="timer-row-button ${running ? 'running' : ''}"
         data-task-timer="${escapeHtml(event.id)}"
+        data-timer-event="${escapeHtml(event.id)}"
+        data-timer-date="${dateKey(state.selectedDate)}"
+        data-running="${running}"
         title="${label}"
         aria-label="${escapeHtml(event.event)}${label}"
         aria-pressed="${running}"
@@ -896,6 +901,8 @@
               >
                 <span
                   class="timer-readout"
+                  data-timer-event="${escapeHtml(event.id)}"
+                  data-timer-date="${dateKey(state.selectedDate)}"
                   data-base-seconds="${Number(record.elapsedSeconds) || 0}"
                   data-running-since="${record.runningSince || ''}"
                 >${formatElapsed(elapsedSeconds(record))}</span>
@@ -1137,28 +1144,51 @@
     refreshIcons();
   }
 
+  function liveTimerState(element) {
+    const eventId = element.dataset.timerEvent;
+    const date = element.dataset.timerDate || dateKey(state.selectedDate);
+    if (eventId && window.eventAPI?.getTimerRecord) {
+      const record = window.eventAPI.getTimerRecord(eventId, date) || {};
+      element.dataset.baseSeconds = String(Number(record.elapsedSeconds) || 0);
+      element.dataset.runningSince = record.runningSince || '';
+    }
+    const base = Number(element.dataset.baseSeconds) || 0;
+    const runningSince = element.dataset.runningSince;
+    const seconds = runningSince
+      ? base + Math.max(0, Math.floor((Date.now() - new Date(runningSince).getTime()) / 1000))
+      : base;
+    return { seconds, running: Boolean(runningSince) };
+  }
+
+  function syncRowTimerButton(button, running) {
+    if (!button) return;
+    const wasRunning = button.dataset.running === 'true';
+    if (wasRunning === running) return;
+    button.dataset.running = String(running);
+    button.classList.toggle('running', running);
+    button.setAttribute('aria-pressed', String(running));
+    button.innerHTML = icon(running ? 'pause' : 'play');
+    const label = running ? '暂停专注' : '开始专注';
+    button.setAttribute('title', label);
+    refreshIcons();
+  }
+
   function updateTimerReadouts() {
     $$('.timer-readout').forEach((element) => {
-      const base = Number(element.dataset.baseSeconds) || 0;
-      const runningSince = element.dataset.runningSince;
-      const seconds = runningSince
-        ? base + Math.max(0, Math.floor((Date.now() - new Date(runningSince).getTime()) / 1000))
-        : base;
+      const { seconds } = liveTimerState(element);
       element.textContent = formatElapsed(seconds);
     });
     $$('[data-timer-progress]').forEach((element) => {
-      const base = Number(element.dataset.baseSeconds) || 0;
-      const runningSince = element.dataset.runningSince;
+      const { seconds, running } = liveTimerState(element);
       const total = Math.max(1, Number(element.dataset.totalSeconds) || 1);
-      const seconds = runningSince
-        ? base + Math.max(0, Math.floor((Date.now() - new Date(runningSince).getTime()) / 1000))
-        : base;
       const pct = element.dataset.completed === 'true'
         ? 100
         : Math.min(100, Math.round((seconds / total) * 100));
       const fill = element.querySelector('.timer-progress-fill');
       if (fill) fill.style.width = `${pct}%`;
       element.setAttribute('title', `专注 ${formatElapsed(seconds)} / ${formatElapsed(total)}`);
+      const rowButton = element.closest('.task-row')?.querySelector('[data-task-timer]');
+      syncRowTimerButton(rowButton, running);
     });
   }
 
