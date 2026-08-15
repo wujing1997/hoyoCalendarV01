@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.3 - 2026-08-15
+
+### Fixed
+
+- 同步队列加载不再信任文件任意结构：旧版/损坏的 `sync-queue.json`（如对象
+  映射、`{queue:[...]}` 包装、混入无效条目）会在启动时被兼容迁移为合法数组，
+  可恢复条目无损保留并继续补推，原始文件自动备份为
+  `sync-queue.backup-<时间戳>.json`；修复此前 `this.queue.filter is not a
+  function` 导致登录后同步报错的类型异常。
+
 ## 3.0.2 - 2026-08-14
 
 ### Changed

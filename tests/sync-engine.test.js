@@ -507,3 +507,117 @@ test('duplicate local change notifications do not double-enqueue the same event'
     assert.equal(engine.queue[0].op, 'upsert');
   });
 });
+
+function validQueueEntry(eventId, operationId, overrides = {}) {
+  return {
+    eventId,
+    operationId,
+    op: 'upsert',
+    data: { event: '遗留任务', date: '2026-08-01' },
+    version: 1,
+    baseVersion: 0,
+    attempts: 0,
+    nextRetryAt: 0,
+    ...overrides,
+  };
+}
+
+function queueBackupFiles(dataDir) {
+  return fs.readdirSync(dataDir).filter((name) => name.startsWith('sync-queue.backup-'));
+}
+
+function engineWithQueueFile(queueJson, callback) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoyo-sync-queue-'));
+  fs.writeFileSync(path.join(dataDir, 'sync-queue.json'), queueJson, 'utf8');
+  const store = new EventStore({ dataDir });
+  const api = new FakeCloudApi();
+  const engine = new SyncEngine({ eventStore: store, api, dataDir, deviceName: '测试机', isOnline: () => true });
+  engine.__store = store;
+  engine.__api = api;
+  try {
+    return callback(engine, dataDir);
+  } finally {
+    drainTimers(engine);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+test('legacy object sync-queue loads as empty without crashing and keeps a backup', async () => {
+  await engineWithQueueFile('{}', async (engine, dataDir) => {
+    assert.deepEqual(engine.queue, []);
+    assert.equal(engine.getSnapshot().queueLength, 0);
+    assert.equal(queueBackupFiles(dataDir).length, 1);
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    await engine.flushPush();
+    assert.equal(engine.getStatus(), SYNC_STATUS.SYNCED);
+  });
+});
+
+test('legacy map-format sync-queue recovers entries losslessly and pushes them', async () => {
+  const legacy = {
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa': validQueueEntry('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'op-legacy-1'),
+  };
+  await engineWithQueueFile(JSON.stringify(legacy), async (engine, dataDir) => {
+    assert.equal(engine.queue.length, 1);
+    assert.equal(engine.queue[0].eventId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    assert.equal(engine.queue[0].operationId, 'op-legacy-1');
+    assert.equal(queueBackupFiles(dataDir).length, 1);
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'sync-queue.json'), 'utf8'));
+    assert.ok(Array.isArray(onDisk));
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    await engine.flushPush();
+    assert.equal(engine.queue.length, 0);
+    assert.equal(engine.__api.events.get('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').data.event, '遗留任务');
+  });
+});
+
+test('wrapper-object sync-queue recovers the nested queue array', () => {
+  const entry = validQueueEntry('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'op-wrapper-1');
+  engineWithQueueFile(JSON.stringify({ queue: [entry], savedAt: '2026-08-01' }), (engine, dataDir) => {
+    assert.equal(engine.queue.length, 1);
+    assert.equal(engine.queue[0].operationId, 'op-wrapper-1');
+    assert.equal(queueBackupFiles(dataDir).length, 1);
+  });
+});
+
+test('sync-queue with malformed entries keeps only valid ones and backs up', () => {
+  const good = validQueueEntry('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'op-good-1');
+  engineWithQueueFile(JSON.stringify([good, null, 'junk', {}, { eventId: '' }]), (engine, dataDir) => {
+    assert.equal(engine.queue.length, 1);
+    assert.equal(engine.queue[0].eventId, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+    assert.equal(queueBackupFiles(dataDir).length, 1);
+  });
+});
+
+test('sync-queue duplicates are deduped by event id on load', () => {
+  const first = validQueueEntry('dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'op-old-1', { data: { event: '旧版本', date: '2026-08-01' } });
+  const second = validQueueEntry('dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'op-new-1', { data: { event: '新版本', date: '2026-08-01' } });
+  engineWithQueueFile(JSON.stringify([first, second]), (engine, dataDir) => {
+    assert.equal(engine.queue.length, 1);
+    assert.equal(engine.queue[0].operationId, 'op-new-1');
+    assert.equal(engine.queue[0].data.event, '新版本');
+    assert.equal(queueBackupFiles(dataDir).length, 1);
+  });
+});
+
+test('valid-array sync-queue loads unchanged without creating a backup', () => {
+  const entry = validQueueEntry('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'op-valid-1');
+  engineWithQueueFile(JSON.stringify([entry]), (engine, dataDir) => {
+    assert.equal(engine.queue.length, 1);
+    assert.deepEqual(engine.queue[0], entry);
+    assert.equal(queueBackupFiles(dataDir).length, 0);
+  });
+});
+
+test('malformed sync-queue json falls back to an empty queue without crashing', async () => {
+  await engineWithQueueFile('{"queue": [', async (engine, dataDir) => {
+    assert.deepEqual(engine.queue, []);
+    assert.equal(queueBackupFiles(dataDir).length, 0);
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    await engine.flushPush();
+    assert.equal(engine.getStatus(), SYNC_STATUS.SYNCED);
+  });
+});

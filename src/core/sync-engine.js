@@ -57,6 +57,24 @@ function eventTypeName(event) {
   return 'normal';
 }
 
+function sanitizeQueueEntry(value) {
+  if (!value || typeof value !== 'object') return null;
+  const eventId = String(value.eventId || '');
+  const operationId = String(value.operationId || '');
+  if (!eventId || !operationId) return null;
+  const op = value.op === 'delete' ? 'delete' : 'upsert';
+  return {
+    eventId,
+    operationId,
+    op,
+    data: op === 'delete' ? null : value.data && typeof value.data === 'object' ? value.data : null,
+    version: Number(value.version) || 1,
+    baseVersion: Number(value.baseVersion) || 0,
+    attempts: Math.max(0, Number(value.attempts) || 0),
+    nextRetryAt: Number(value.nextRetryAt) || 0,
+  };
+}
+
 class SyncEngine {
   constructor(options = {}) {
     this.eventStore = options.eventStore;
@@ -86,7 +104,7 @@ class SyncEngine {
     });
     this.state.serverUrl = migrateLegacyServerUrl(this.state.serverUrl);
     if (this.api) this.api.baseUrl = this.state.serverUrl;
-    this.queue = readJsonFile(this.queueFile, []);
+    this.queue = this.loadQueue();
     this.account = this.state.account || null;
     this.flushTimer = null;
     this.heartbeatTimer = null;
@@ -98,8 +116,54 @@ class SyncEngine {
     writeJsonFile(this.stateFile, this.state);
   }
 
+  loadQueue() {
+    let raw = null;
+    try {
+      if (fs.existsSync(this.queueFile)) {
+        raw = JSON.parse(fs.readFileSync(this.queueFile, 'utf8'));
+      }
+    } catch (_) {
+      raw = null;
+    }
+
+    let candidates = [];
+    if (Array.isArray(raw)) {
+      candidates = raw;
+    } else if (raw && typeof raw === 'object') {
+      if (Array.isArray(raw.queue)) candidates = raw.queue;
+      else if (Array.isArray(raw.items)) candidates = raw.items;
+      else candidates = Object.values(raw);
+    }
+
+    const entries = candidates.map(sanitizeQueueEntry).filter((entry) => entry !== null);
+
+    const byOperationId = new Map();
+    for (const entry of entries) byOperationId.set(entry.operationId, entry);
+    const byEventId = new Map();
+    for (const entry of byOperationId.values()) byEventId.set(entry.eventId, entry);
+    const deduped = [...byEventId.values()];
+
+    const migrated = !Array.isArray(raw) || entries.length !== candidates.length || deduped.length !== entries.length;
+    if (migrated && raw !== null) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const backupFile = path.join(this.dataDir, `sync-queue.backup-${stamp}.json`);
+      try {
+        if (!fs.existsSync(backupFile)) fs.copyFileSync(this.queueFile, backupFile);
+      } catch (_) {
+        // 备份失败不阻断队列迁移
+      }
+      this.queue = deduped;
+      this.persistQueue();
+    }
+    return deduped;
+  }
+
   persistQueue() {
-    writeJsonFile(this.queueFile, this.queue);
+    if (!Array.isArray(this.queue)) {
+      console.error('[SyncEngine] Refusing to persist non-array queue:', typeof this.queue);
+      return false;
+    }
+    return writeJsonFile(this.queueFile, this.queue);
   }
 
   getAccount() {
