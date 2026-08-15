@@ -131,6 +131,9 @@ class CloudApi {
   }
 
   async call(path, options = {}) {
+    if (options.auth !== false && !this.bearerToken) {
+      throw new CloudApiError('未登录或登录已失效', 401, null, 'missing_auth');
+    }
     const headers = {};
     if (options.auth !== false) {
       const token = options.bearerToken || this.bearerToken;
@@ -148,7 +151,7 @@ class CloudApi {
     let response = await this.call(path, options);
     if (response.status === 401 && options.retried !== true && this.refreshToken) {
       const refreshed = await this.refreshSession();
-      if (refreshed) {
+      if (refreshed && refreshed.ok) {
         response = await this.call(path, { ...options, retried: true });
       }
     }
@@ -156,7 +159,7 @@ class CloudApi {
   }
 
   async refreshSession() {
-    if (!this.refreshToken) return false;
+    if (!this.refreshToken) return { ok: false, invalid: false, reason: 'no_token' };
     try {
       const response = await this.call('/api/v1/auth/refresh', {
         method: 'POST',
@@ -164,14 +167,19 @@ class CloudApi {
         auth: false,
         timeoutMs: 15000,
       });
-      if (!response.ok) {
-        this.setTokens(null);
-        return false;
+      if (response.ok) {
+        this.setTokens(response.data);
+        return { ok: true, invalid: false };
       }
-      this.setTokens(response.data);
-      return true;
-    } catch (_) {
-      return false;
+      const invalid = response.status === 400 || response.status === 401 || response.status === 403;
+      return {
+        ok: false,
+        invalid,
+        status: response.status,
+        message: messageFromResponse(response, '刷新登录态失败'),
+      };
+    } catch (error) {
+      return { ok: false, invalid: false, error };
     }
   }
 
@@ -184,6 +192,7 @@ class CloudApi {
         password,
         device_name: deviceName,
       },
+      auth: false,
       timeoutMs: 20000,
     });
     requireOk(response, '注册失败');
@@ -195,6 +204,7 @@ class CloudApi {
     const response = await this.call('/api/v1/auth/login', {
       method: 'POST',
       body: { email, password, device_name: deviceName },
+      auth: false,
       timeoutMs: 20000,
     });
     requireOk(response, '登录失败');

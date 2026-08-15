@@ -102,3 +102,78 @@ test('recurrence label includes concrete weekly days', () => {
   );
   assert.match(rendererSource, /return days \? `每周\$\{days\}` : '每周';/);
 });
+
+// ------------------------------------------------------------------ recurring weekday editing
+
+test('detail dialog renders a weekday picker with all seven days', () => {
+  assert.match(rendererSource, /data-weekday-picker/);
+  assert.match(rendererSource, /SHORT_DAY_NAMES\.map\(\(name, day\) =>/);
+  assert.match(rendererSource, /data-weekday="\$\{day\}"/);
+});
+
+test('weekday picker prefills the selected days from the recurring rule', () => {
+  assert.match(
+    rendererSource,
+    /class="weekday-chip \$\{\(event\.recurringDays \|\| \[\]\)\.includes\(day\) \? 'selected' : ''\}"/,
+  );
+  assert.match(
+    rendererSource,
+    /aria-pressed="\$\{\(event\.recurringDays \|\| \[\]\)\.includes\(day\)\}"/,
+  );
+});
+
+test('weekday picker field is visible only for weekly recurring type', () => {
+  assert.match(
+    rendererSource,
+    /data-recurring-weekday-field[\s\S]*?\$\{type === 'recurring' && event\.recurringType === 'weekly' \? '' : 'hidden'\}/,
+  );
+});
+
+test('changing the recurring type toggles the weekday field visibility', () => {
+  assert.match(
+    rendererSource,
+    /\$\$\('\[data-recurring-weekday-field\]', form\)\.forEach\(\(field\) => \{\s*field\.hidden = !weekly;\s*\}\)/,
+  );
+  assert.match(
+    rendererSource,
+    /const recurringType = form\.querySelector\('\[name="recurringType"\]'\)\?\.value \|\| 'daily';/,
+  );
+});
+
+test('clicking a weekday chip toggles its selected state', () => {
+  assert.match(
+    rendererSource,
+    /const weekdayChip = event\.target\.closest\('\[data-weekday\]'\);/,
+  );
+  assert.match(
+    rendererSource,
+    /const selected = weekdayChip\.classList\.toggle\('selected'\);/,
+  );
+  assert.match(
+    rendererSource,
+    /weekdayChip\.setAttribute\('aria-pressed', String\(selected\)\);/,
+  );
+});
+
+test('saving a weekly recurring task persists the selected weekdays', () => {
+  assert.match(
+    rendererSource,
+    /const selectedDays = \$\$\('\[data-weekday\]', form\)[\s\S]*?\.filter\(\(chip\) => chip\.classList\.contains\('selected'\)\)[\s\S]*?\.map\(\(chip\) => Number\(chip\.dataset\.weekday\)\)/,
+  );
+  assert.match(
+    rendererSource,
+    /recurringDays: recurringType === 'weekly' \? selectedDays : \[\],/,
+  );
+});
+
+// ------------------------------------------------------------------ login persistence wiring
+
+test('startup restores the session before sync can run', () => {
+  const initCloud = preloadSource.match(/async function initCloud\(\) \{[\s\S]*?\n\}/);
+  assert.ok(initCloud, 'initCloud should exist in preload');
+  assert.match(initCloud[0], /syncEngine\.restoreSession\(\)/);
+});
+
+test('preload event bridge clears credentials on logout via signOut', () => {
+  assert.match(preloadSource, /logout: async \(\) => \{[\s\S]*?syncEngine\.signOut\(\)/);
+});

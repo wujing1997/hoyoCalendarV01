@@ -226,3 +226,61 @@ test('https requests go through the https transport on port 443', async () => {
     server.close();
   }
 });
+
+test('authenticated calls without a bearer token are blocked client-side', async () => {
+  const api = new CloudApi({ baseUrl: 'http://127.0.0.1:1' });
+  await assert.rejects(
+    () => api.me(),
+    (error) => error instanceof CloudApiError && error.status === 401 && error.code === 'missing_auth',
+  );
+});
+
+test('refreshSession reports server-rejected refresh as invalid', async () => {
+  const { server, port } = await startServer((_req, res) => {
+    jsonHandler(401, { detail: 'refresh token expired' })(_req, res);
+  });
+  try {
+    const api = new CloudApi({ baseUrl: `http://127.0.0.1:${port}` });
+    api.refreshToken = 'rt-dead';
+    const result = await api.refreshSession();
+    assert.equal(result.ok, false);
+    assert.equal(result.invalid, true);
+    assert.equal(api.bearerToken, null);
+  } finally {
+    server.close();
+  }
+});
+
+test('refreshSession reports network failure as transient, not invalid', async () => {
+  const api = new CloudApi({ baseUrl: 'http://127.0.0.1:1' });
+  api.refreshToken = 'rt-kept';
+  const result = await api.refreshSession();
+  assert.equal(result.ok, false);
+  assert.equal(result.invalid, false);
+  assert.ok(result.error);
+});
+
+test('refreshSession without any refresh token reports no_token', async () => {
+  const api = new CloudApi({ baseUrl: 'http://127.0.0.1:1' });
+  const result = await api.refreshSession();
+  assert.equal(result.ok, false);
+  assert.equal(result.invalid, false);
+  assert.equal(result.reason, 'no_token');
+});
+
+test('successful refreshSession exchanges tokens and reports ok', async () => {
+  const { server, port } = await startServer((_req, res) => {
+    jsonHandler(200, { access_token: 'at-new', refresh_token: 'rt-new', expires_in: 900, device_id: 'd1' })(_req, res);
+  });
+  try {
+    const api = new CloudApi({ baseUrl: `http://127.0.0.1:${port}` });
+    api.refreshToken = 'rt-old';
+    const result = await api.refreshSession();
+    assert.equal(result.ok, true);
+    assert.equal(result.invalid, false);
+    assert.equal(api.bearerToken, 'at-new');
+    assert.equal(api.refreshToken, 'rt-new');
+  } finally {
+    server.close();
+  }
+});

@@ -677,6 +677,35 @@ body[data-theme="dark"] .mini-day.selected {
   height: 15px;
 }
 
+.weekday-picker {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.weekday-chip {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.weekday-chip:hover {
+  border-color: var(--primary);
+}
+
+.weekday-chip.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
 .focus-button.active {
   color: var(--primary);
   border-color: color-mix(in srgb, var(--primary), transparent 55%);

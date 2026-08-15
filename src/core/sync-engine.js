@@ -217,19 +217,34 @@ class SyncEngine {
   async restoreSession() {
     const refreshToken = await this.credentialStore.getRefreshToken();
     if (!refreshToken) {
+      if (this.account) {
+        this.account = null;
+        this.state.account = null;
+        this.state.lastError = null;
+        this.persistState();
+      }
       this.notify();
       return false;
     }
     this.api.refreshToken = refreshToken;
     const refreshed = await this.api.refreshSession();
-    if (!refreshed) {
+    if (refreshed && refreshed.ok) {
+      return this.activateSession({ notify: false });
+    }
+    if (refreshed && refreshed.invalid) {
       await this.credentialStore.clearRefreshToken();
       this.api.setTokens(null);
+      this.account = null;
+      this.state.account = null;
+      this.state.lastError = refreshed.message || '登录已失效，请重新登录';
+      this.persistState();
       this.notify();
       return false;
     }
-    await this.activateSession({ notify: false });
-    return true;
+    this.state.lastError = '网络暂不可用，登录态已保留，恢复网络后自动同步';
+    this.persistState();
+    this.notify();
+    return false;
   }
 
   async activateSession(options = {}) {
@@ -446,7 +461,7 @@ class SyncEngine {
   }
 
   async flushPush() {
-    if (this.syncing || !this.account || !this.isOnline()) return;
+    if (this.syncing || !this.account || !this.isOnline() || !this.api.getAuthenticated()) return;
     const now = Date.now();
     const due = this.queue.filter((entry) => entry.nextRetryAt <= now).slice(0, PUSH_LIMIT);
     if (!due.length) return;
@@ -673,7 +688,7 @@ class SyncEngine {
   async listTrash() {
     const localTrash = this.eventStore.listTrash();
     let cloudItems = [];
-    if (this.account && this.isOnline()) {
+    if (this.account && this.isOnline() && this.api.getAuthenticated()) {
       try {
         const response = await this.api.trash();
         cloudItems = response.items || [];
@@ -685,7 +700,7 @@ class SyncEngine {
   }
 
   async restoreFromTrash(id, eventId) {
-    if (eventId && this.account && this.isOnline()) {
+    if (eventId && this.account && this.isOnline() && this.api.getAuthenticated()) {
       try {
         const restored = await this.api.restore(eventId);
         const local = this.eventStore.findEventByUuid(eventId);
@@ -769,7 +784,7 @@ class SyncEngine {
   // ------------------------------------------------------------------ lifecycle
 
   async syncNow(options = {}) {
-    if (!this.account) return false;
+    if (!this.account || !this.api.getAuthenticated()) return false;
     if (options.pull !== false && this.isOnline()) {
       try {
         await this.pullAll();
@@ -787,6 +802,17 @@ class SyncEngine {
     if (!this.account || !this.isOnline()) {
       this.notify();
       return;
+    }
+    if (!this.api.getAuthenticated() && this.api.refreshToken) {
+      const refreshed = await this.api.refreshSession();
+      if (!refreshed || !refreshed.ok) {
+        if (refreshed && refreshed.invalid) {
+          await this.signOut();
+        } else {
+          this.notify();
+        }
+        return;
+      }
     }
     const now = Date.now();
     if (now - this.lastPullAt > 30000) {

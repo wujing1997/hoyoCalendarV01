@@ -745,6 +745,24 @@
               <option value="monthly" ${event.recurringType === 'monthly' ? 'selected' : ''}>每月</option>
             </select>
           </label>
+          <label
+            class="detail-field"
+            data-recurring-weekday-field
+            ${type === 'recurring' && event.recurringType === 'weekly' ? '' : 'hidden'}
+          >
+            ${icon('calendar-check-2')}
+            <span>星期</span>
+            <div class="weekday-picker" data-weekday-picker>
+              ${SHORT_DAY_NAMES.map((name, day) => `
+                <button
+                  type="button"
+                  class="weekday-chip ${(event.recurringDays || []).includes(day) ? 'selected' : ''}"
+                  data-weekday="${day}"
+                  aria-pressed="${(event.recurringDays || []).includes(day)}"
+                >${name}</button>
+              `).join('')}
+            </div>
+          </label>
           <label class="detail-field" data-recurring-field ${type === 'recurring' ? '' : 'hidden'}>
             ${icon('calendar-range')}
             <span>结束</span>
@@ -952,14 +970,18 @@
         isDeadlineCompleted: source.isDeadlineCompleted || false,
       });
     } else if (type === 'recurring') {
+      const recurringType = values.recurringType || 'daily';
+      const selectedDays = $$('[data-weekday]', form)
+        .filter((chip) => chip.classList.contains('selected'))
+        .map((chip) => Number(chip.dataset.weekday));
       Object.assign(updates, {
         isDeadline: false,
         isRecurring: true,
         date,
         startDate: date,
         endDate: values.endDate || dateKey(addDays(parseDateKey(date), 30)),
-        recurringType: values.recurringType || 'daily',
-        recurringDays: source.recurringDays || [],
+        recurringType,
+        recurringDays: recurringType === 'weekly' ? selectedDays : [],
         completedDates: source.completedDates || [],
       });
     } else {
@@ -1887,18 +1909,38 @@
     }
     const remove = event.target.closest('[data-detail-delete]');
     if (remove) deleteTask(remove.dataset.detailDelete);
+    const weekdayChip = event.target.closest('[data-weekday]');
+    if (weekdayChip) {
+      const selected = weekdayChip.classList.toggle('selected');
+      weekdayChip.setAttribute('aria-pressed', String(selected));
+    }
   }
 
   function handleDetailChange(event) {
     const typeSelect = event.target.closest('[data-detail-type]');
-    if (!typeSelect) return;
-    const form = typeSelect.closest('[data-detail-form]');
-    $$('[data-recurring-field]', form).forEach((field) => {
-      field.hidden = typeSelect.value !== 'recurring';
-    });
-    $$('[data-deadline-field]', form).forEach((field) => {
-      field.hidden = typeSelect.value !== 'deadline';
-    });
+    if (typeSelect) {
+      const form = typeSelect.closest('[data-detail-form]');
+      const recurring = typeSelect.value === 'recurring';
+      const recurringType = form.querySelector('[name="recurringType"]')?.value || 'daily';
+      $$('[data-recurring-field]', form).forEach((field) => {
+        field.hidden = !recurring;
+      });
+      $$('[data-deadline-field]', form).forEach((field) => {
+        field.hidden = typeSelect.value !== 'deadline';
+      });
+      $$('[data-recurring-weekday-field]', form).forEach((field) => {
+        field.hidden = !(recurring && recurringType === 'weekly');
+      });
+      return;
+    }
+    const recurringTypeSelect = event.target.closest('[name="recurringType"]');
+    if (recurringTypeSelect) {
+      const form = recurringTypeSelect.closest('[data-detail-form]');
+      const weekly = recurringTypeSelect.value === 'weekly';
+      $$('[data-recurring-weekday-field]', form).forEach((field) => {
+        field.hidden = !weekly;
+      });
+    }
   }
 
   function bindEvents() {

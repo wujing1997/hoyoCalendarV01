@@ -38,18 +38,35 @@ class FakeCloudApi {
     this.conflicts = new Map();
     this.pushResponses = [];
     this.failNext = null;
+    this.failRefresh = null;
     this.refreshToken = 'test-refresh-token';
     this.authenticated = true;
+    this.bearerToken = 'at-initial';
   }
 
-  setTokens() {}
+  setTokens(tokens) {
+    if (tokens) {
+      this.bearerToken = tokens.access_token || 'at-refreshed';
+      this.refreshToken = tokens.refresh_token || this.refreshToken;
+    } else {
+      this.bearerToken = null;
+    }
+  }
+
+  getAuthenticated() {
+    return Boolean(this.bearerToken);
+  }
 
   async me() {
     return { id: 'user-1', email: 'a@b.c', status: 'active' };
   }
 
   async refreshSession() {
-    return this.authenticated;
+    if (this.failRefresh === 'invalid') return { ok: false, invalid: true, status: 401, message: '登录已失效' };
+    if (this.failRefresh === 'network') return { ok: false, invalid: false, error: new Error('ECONNRESET') };
+    if (!this.authenticated) return { ok: false, invalid: true, status: 401 };
+    this.bearerToken = 'at-refreshed';
+    return { ok: true, invalid: false };
   }
 
   async login() {
@@ -660,5 +677,209 @@ test('malformed sync-queue json falls back to an empty queue without crashing', 
     engine.state.account = engine.account;
     await engine.flushPush();
     assert.equal(engine.getStatus(), SYNC_STATUS.SYNCED);
+  });
+});
+
+// ------------------------------------------------------------------ login persistence
+
+function engineWithCredential(options = {}) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoyo-auth-'));
+  if (options.stateFile) {
+    fs.writeFileSync(path.join(dataDir, 'sync-state.json'), JSON.stringify(options.stateFile), 'utf8');
+  }
+  const store = new EventStore({ dataDir });
+  const api = new FakeCloudApi();
+  if (options.failRefresh) api.failRefresh = options.failRefresh;
+  const cleared = [];
+  const engine = new SyncEngine({
+    eventStore: store,
+    api,
+    dataDir,
+    isOnline: () => options.online !== false,
+    credentialStore: {
+      getRefreshToken: async () => options.refreshToken || null,
+      setRefreshToken: async () => {},
+      clearRefreshToken: async () => {
+        cleared.push(true);
+      },
+    },
+  });
+  engine.__store = store;
+  engine.__api = api;
+  engine.__cleared = cleared;
+  engine.__dataDir = dataDir;
+  return engine;
+}
+
+test('restart restores the session and keeps the account logged in', async () => {
+  const engine = engineWithCredential({
+    refreshToken: 'rt-kept',
+    stateFile: { serverUrl: 'https://api.example.com', cursor: 3, account: { userId: 'u1', email: 'a@b.c', status: 'active' }, conflicts: [], migrationDone: true },
+  });
+  try {
+    const restored = await engine.restoreSession();
+    assert.equal(restored, true);
+    assert.equal(engine.account.email, 'a@b.c');
+    assert.equal(engine.__api.bearerToken, 'at-refreshed');
+    assert.equal(engine.__cleared.length, 0);
+  } finally {
+    drainTimers(engine);
+    fs.rmSync(engine.__dataDir, { recursive: true, force: true });
+  }
+});
+
+test('transient refresh failure keeps credentials and account (offline startup)', async () => {
+  const engine = engineWithCredential({
+    refreshToken: 'rt-kept',
+    failRefresh: 'network',
+    stateFile: { serverUrl: 'https://api.example.com', cursor: 3, account: { userId: 'u1', email: 'a@b.c', status: 'active' }, conflicts: [], migrationDone: true },
+  });
+  try {
+    const restored = await engine.restoreSession();
+    assert.equal(restored, false);
+    assert.equal(engine.account.email, 'a@b.c');
+    assert.equal(engine.__cleared.length, 0);
+    assert.ok(engine.state.lastError.includes('网络暂不可用'));
+    const pushCallsBefore = engine.__api.events.size;
+    await engine.flushPush();
+    assert.equal(engine.__api.events.size, pushCallsBefore);
+  } finally {
+    drainTimers(engine);
+    fs.rmSync(engine.__dataDir, { recursive: true, force: true });
+  }
+});
+
+test('server-rejected refresh clears credentials and signs out', async () => {
+  const engine = engineWithCredential({
+    refreshToken: 'rt-dead',
+    failRefresh: 'invalid',
+    stateFile: { serverUrl: 'https://api.example.com', cursor: 3, account: { userId: 'u1', email: 'a@b.c', status: 'active' }, conflicts: [], migrationDone: true },
+  });
+  try {
+    const restored = await engine.restoreSession();
+    assert.equal(restored, false);
+    assert.equal(engine.account, null);
+    assert.equal(engine.__cleared.length, 1);
+    assert.ok(engine.state.lastError.includes('登录已失效'));
+  } finally {
+    drainTimers(engine);
+    fs.rmSync(engine.__dataDir, { recursive: true, force: true });
+  }
+});
+
+test('missing local credential without persisted account stays signed out', async () => {
+  const engine = engineWithCredential({
+    refreshToken: null,
+    stateFile: { serverUrl: 'https://api.example.com', cursor: 0, account: null, conflicts: [], migrationDone: false },
+  });
+  try {
+    const restored = await engine.restoreSession();
+    assert.equal(restored, false);
+    assert.equal(engine.account, null);
+    assert.equal(engine.getStatus(), SYNC_STATUS.SIGNED_OUT);
+  } finally {
+    drainTimers(engine);
+    fs.rmSync(engine.__dataDir, { recursive: true, force: true });
+  }
+});
+
+test('persisted account without local credential is treated as signed out', async () => {
+  const engine = engineWithCredential({
+    refreshToken: null,
+    stateFile: { serverUrl: 'https://api.example.com', cursor: 0, account: { userId: 'u1', email: 'a@b.c', status: 'active' }, conflicts: [], migrationDone: false },
+  });
+  try {
+    const restored = await engine.restoreSession();
+    assert.equal(restored, false);
+    assert.equal(engine.account, null);
+    assert.equal(engine.getStatus(), SYNC_STATUS.SIGNED_OUT);
+  } finally {
+    drainTimers(engine);
+    fs.rmSync(engine.__dataDir, { recursive: true, force: true });
+  }
+});
+
+test('explicit logout clears credentials, tokens and stops the session', async () => {
+  const engine = engineWithCredential({
+    refreshToken: 'rt-kept',
+    stateFile: { serverUrl: 'https://api.example.com', cursor: 3, account: { userId: 'u1', email: 'a@b.c', status: 'active' }, conflicts: [], migrationDone: true },
+  });
+  try {
+    await engine.restoreSession();
+    assert.equal(engine.account.email, 'a@b.c');
+    await engine.signOut();
+    assert.equal(engine.account, null);
+    assert.equal(engine.__cleared.length, 1);
+    assert.equal(engine.__api.bearerToken, null);
+    assert.equal(engine.getStatus(), SYNC_STATUS.SIGNED_OUT);
+    await engine.flushPush();
+    assert.equal(engine.__api.events.size, 0);
+  } finally {
+    drainTimers(engine);
+    fs.rmSync(engine.__dataDir, { recursive: true, force: true });
+  }
+});
+
+test('sync is skipped entirely when not authenticated (no unauthenticated requests)', async () => {
+  const engine = engineWithCredential({ refreshToken: null });
+  try {
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    engine.__api.bearerToken = null;
+    const created = engine.__store.addEvent({ event: '离线任务', date: '2026-08-01' });
+    engine.noteLocalChange(created.id, 'upsert');
+    assert.equal(engine.queue.length, 1);
+    await engine.flushPush();
+    assert.equal(engine.queue.length, 1);
+    assert.equal(engine.__api.events.size, 0);
+    const synced = await engine.syncNow();
+    assert.equal(synced, false);
+    assert.equal(engine.queue.length, 1);
+  } finally {
+    drainTimers(engine);
+    fs.rmSync(engine.__dataDir, { recursive: true, force: true });
+  }
+});
+
+// ------------------------------------------------------------------ recurring rule editing
+
+test('editing a recurring rule updates the series record once and re-queues with new weekdays', async () => {
+  await withEngine({}, async (engine) => {
+    engine.account = { userId: 'u1', email: 'a@b.c' };
+    engine.state.account = engine.account;
+    const created = engine.__store.addEvent({
+      event: '每周训练',
+      date: '2026-08-01',
+      isRecurring: true,
+      recurringType: 'weekly',
+      recurringDays: [0, 3, 4, 5, 6],
+      endDate: '2026-09-30',
+    });
+    engine.__store.ensureSyncMetadata();
+    engine.noteLocalChange(created.id, 'upsert');
+    assert.equal(engine.queue.length, 1);
+
+    const updated = engine.__store.updateEvent(created.id, {
+      recurringDays: [3, 4, 5],
+      recurringType: 'weekly',
+    });
+    assert.ok(updated);
+    const records = engine.__store.loadAllEvents();
+    const sameUuid = records.filter((event) => event._uuid === updated._uuid);
+    assert.equal(sameUuid.length, 1);
+    assert.deepEqual(updated.recurringDays, [3, 4, 5]);
+    assert.equal(updated.event, '每周训练');
+
+    engine.noteLocalChange(updated.id, 'upsert');
+    assert.equal(engine.queue.length, 1);
+    assert.deepEqual(engine.queue[0].data.recurringDays, [3, 4, 5]);
+    assert.equal(engine.queue[0].operationId, updated._opId);
+    assert.equal(engine.queue[0].data.endDate, '2026-09-30');
+
+    await engine.flushPush();
+    assert.equal(engine.queue.length, 0);
+    const serverEvent = engine.__api.events.get(updated._uuid);
+    assert.deepEqual(serverEvent.data.recurringDays, [3, 4, 5]);
+    assert.equal(serverEvent.data.event, '每周训练');
   });
 });
