@@ -1,0 +1,23 @@
+# HoYoCalendar Admin API (管理后台后端) — systemd unit
+# 仅绑定 127.0.0.1，不监听公网。通过 SSH 隧道在本机浏览器访问。
+# 安装：sudo cp deploy/hoyocalendar-admin.service /etc/systemd/system/
+#       sudo systemctl daemon-reload && sudo systemctl enable --now hoyocalendar-admin
+[Unit]
+Description=HoYoCalendar Admin API (loopback only)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=hoyo
+Group=hoyo
+WorkingDirectory=/opt/hoyocalendar/cloud
+EnvironmentFile=/opt/hoyocalendar/.env
+ExecStart=/opt/hoyocalendar/venv/bin/uvicorn app.main:admin_app --host 127.0.0.1 --port 8001
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,66 @@
+# HoYoCalendar Cloud — Docker Compose (production-like reference)
+#
+# 说明：Docker 部署为参考/演进路径。当前测试环境采用 systemd 直接运行
+# uvicorn + 本机 PostgreSQL（见 deploy/deploy.md），两者等价。
+#
+# 使用：
+#   cp .env.example .env   # 填好所有必填密钥
+#   docker compose up -d --build
+#
+# 注意：管理服务 (admin) 仅绑定 127.0.0.1，不监听公网。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hoyo
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?set in .env}
+      POSTGRES_DB: hoyocalendar
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hoyo -d hoyocalendar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:api_app --host 127.0.0.1 --port 8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://hoyo:${DATABASE_PASSWORD:?}@postgres:5432/hoyocalendar
+      JWT_SECRET: ${JWT_SECRET:?}
+      ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET:?}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_ENABLED: ${AI_ENABLED:-true}
+      AI_MONTHLY_BUDGET_USD: ${AI_MONTHLY_BUDGET_USD:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+
+  admin:
+    build: .
+    restart: unless-stopped
+    command: uvicorn app.main:admin_app --host 127.0.0.1 --port 8001
+    environment:
+      DATABASE_URL: postgresql+psycopg2://hoyo:${DATABASE_PASSWORD:?}@postgres:5432/hoyocalendar
+      JWT_SECRET: ${JWT_SECRET:?}
+      ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET:?}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8001"
+
+volumes:
+  pgdata:

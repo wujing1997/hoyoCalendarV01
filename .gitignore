@@ -23,6 +23,7 @@ venv/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -38,6 +39,12 @@ npm-debug.log*
 
 # Superpowers visual brainstorming sessions
 .superpowers/
+
+# Local agent audit scratch files
+.codex-server-audit/
+
+# Legacy unpacked build artifacts
+dist-v2.3-deadline-fix/
 
 # Legacy files (contain sensitive data)
 Doubao.py

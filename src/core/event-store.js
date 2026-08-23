@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('crypto');
 const {
   addDays,
   daysBetween,
@@ -19,6 +20,10 @@ function asPositiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+function isInternalField(key) {
+  return key.startsWith('_');
+}
+
 class EventStore {
   constructor(options = {}) {
     const baseDir = options.dataDir
@@ -32,6 +37,35 @@ class EventStore {
   generateId() {
     this.idCounter += 1;
     return Date.now() * 1000 + this.idCounter;
+  }
+
+  generateUuid() {
+    return randomUUID();
+  }
+
+  markChanged(event) {
+    event._uuid = event._uuid || this.generateUuid();
+    event._version = (Number(event._version) || 0) + 1;
+    event._opId = this.generateUuid();
+    return event;
+  }
+
+  applyRemoteMeta(event, remote) {
+    if (remote.eventId) event._uuid = remote.eventId;
+    if (remote.operationId) event._opId = remote.operationId;
+    if (Number.isFinite(Number(remote.version))) {
+      event._version = Number(remote.version);
+      event._baseVersion = Number(remote.version);
+    }
+    return event;
+  }
+
+  sanitizeForSync(event) {
+    const output = {};
+    for (const [key, value] of Object.entries(event || {})) {
+      if (!isInternalField(key)) output[key] = value;
+    }
+    return output;
   }
 
   normalizeEvent(input) {
@@ -48,10 +82,48 @@ class EventStore {
     event.timerRecords = event.timerRecords && typeof event.timerRecords === 'object'
       ? event.timerRecords
       : {};
+    const activeStartDate = this.validDate(event.activeStartDate);
+    const activeEndDate = this.validDate(event.activeEndDate);
+    if (activeStartDate) event.activeStartDate = activeStartDate;
+    else delete event.activeStartDate;
+    if (activeEndDate) event.activeEndDate = activeEndDate;
+    else delete event.activeEndDate;
 
     const targetDuration = asPositiveNumber(event.targetDurationMinutes);
     if (targetDuration) event.targetDurationMinutes = Math.round(targetDuration);
     else delete event.targetDurationMinutes;
+
+    this.normalizeTargetDuration(event);
+
+    if (event.isLongTerm) {
+      const startDate = this.validDate(event.startDate || event.date) || today;
+      event.isLongTerm = true;
+      event.date = startDate;
+      event.startDate = startDate;
+      event.isCompleted = Boolean(event.isCompleted || event.completed);
+      if (event.isCompleted) {
+        const completedAtDate = event.completedAt
+          ? this.validDate(new Date(event.completedAt))
+          : '';
+        event.completedDate = this.validDate(event.completedDate) || completedAtDate || startDate;
+      } else {
+        delete event.completedAt;
+        delete event.completedDate;
+      }
+      event.focusTotalSeconds = Math.max(0, Math.floor(Number(event.focusTotalSeconds) || 0));
+      event.focusRunningSince = this.validIsoTime(event.focusRunningSince) ? event.focusRunningSince : null;
+      delete event.completed;
+      delete event.isDeadline;
+      delete event.deadlineDate;
+      delete event.isDeadlineCompleted;
+      delete event.deadlineCompletedDate;
+      delete event.isRecurring;
+      delete event.recurringType;
+      delete event.recurringDays;
+      delete event.recurringMonthDays;
+      delete event.completedDates;
+      return event;
+    }
 
     if (event.isDeadline) {
       const startDate = this.validDate(event.startDate || event.date) || today;
@@ -68,26 +140,38 @@ class EventStore {
       delete event.isRecurring;
       delete event.recurringType;
       delete event.recurringDays;
+      delete event.recurringMonthDays;
+      delete event.endDate;
       delete event.completedDates;
       delete event.isCompleted;
       delete event.completedDate;
+      delete event.isLongTerm;
+      delete event.focusTotalSeconds;
+      delete event.focusRunningSince;
       return event;
     }
 
     if (event.isRecurring) {
       const startDate = this.validDate(event.startDate || event.date) || today;
-      const fallbackEnd = formatDate(addDays(parseDate(startDate), 30));
-      const endDate = this.validDate(event.endDate) || fallbackEnd;
+      const endDate = this.validDate(event.endDate);
       event.isRecurring = true;
       event.date = startDate;
       event.startDate = startDate;
-      event.endDate = endDate < startDate ? startDate : endDate;
+      if (endDate) event.endDate = endDate < startDate ? startDate : endDate;
+      else delete event.endDate;
       event.recurringType = ['daily', 'weekly', 'monthly'].includes(event.recurringType)
         ? event.recurringType
         : 'daily';
       event.recurringDays = Array.isArray(event.recurringDays)
         ? [...new Set(event.recurringDays.map(Number).filter((day) => day >= 0 && day <= 6))]
         : [];
+      if (event.recurringType === 'monthly') {
+        event.recurringMonthDays = Array.isArray(event.recurringMonthDays)
+          ? [...new Set(event.recurringMonthDays.map(Number).filter((day) => day >= 1 && day <= 31))]
+          : [];
+      } else {
+        delete event.recurringMonthDays;
+      }
       event.completedDates = Array.isArray(event.completedDates)
         ? [...new Set(event.completedDates.filter((date) => this.validDate(date)))]
         : [];
@@ -98,6 +182,9 @@ class EventStore {
       delete event.isCompleted;
       delete event.completedDate;
       delete event.completedAt;
+      delete event.isLongTerm;
+      delete event.focusTotalSeconds;
+      delete event.focusRunningSince;
       return event;
     }
 
@@ -122,8 +209,29 @@ class EventStore {
     delete event.isRecurring;
     delete event.recurringType;
     delete event.recurringDays;
+    delete event.recurringMonthDays;
     delete event.completedDates;
+    delete event.isLongTerm;
+    delete event.focusTotalSeconds;
+    delete event.focusRunningSince;
     return event;
+  }
+
+  normalizeTargetDuration(event) {
+    const seconds = Number(event.targetDurationSeconds);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      event.targetDurationSeconds = Math.floor(seconds);
+      event.targetDurationMinutes = Math.round(event.targetDurationSeconds / 60);
+    } else if (event.targetDurationSeconds !== undefined) {
+      delete event.targetDurationSeconds;
+      delete event.targetDurationMinutes;
+    }
+  }
+
+  validIsoTime(value) {
+    if (typeof value !== 'string' || !value) return false;
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime());
   }
 
   normalizeTime(value) {
@@ -141,6 +249,20 @@ class EventStore {
   }
 
   loadEvents() {
+    try {
+      if (!fs.existsSync(this.eventsFile)) return [];
+      const parsed = JSON.parse(fs.readFileSync(this.eventsFile, 'utf8'));
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((event) => this.normalizeEvent(event))
+        .filter((event) => !event._deleted);
+    } catch (error) {
+      console.error('[EventStore] Failed to load events:', error);
+      return [];
+    }
+  }
+
+  loadAllEvents() {
     try {
       if (!fs.existsSync(this.eventsFile)) return [];
       const parsed = JSON.parse(fs.readFileSync(this.eventsFile, 'utf8'));
@@ -172,21 +294,35 @@ class EventStore {
   }
 
   addEvent(input) {
-    const events = this.loadEvents();
+    const events = this.loadAllEvents();
     const now = new Date().toISOString();
-    const event = this.normalizeEvent({
+
+    if (input?.id !== undefined) {
+      const trashedIndex = events.findIndex(
+        (event) => String(event.id) === String(input.id) && event._deleted,
+      );
+      if (trashedIndex >= 0) {
+        const restored = this.restoreFromTrash(input.id);
+        if (restored) return clone(restored);
+      }
+    }
+
+    const draft = {
       ...input,
       id: input?.id ?? this.generateId(),
       createdAt: input?.createdAt || now,
       updatedAt: now,
-    });
+    };
+    if (input?.id === undefined) delete draft._uuid;
+    const event = this.normalizeEvent(draft);
+    this.markChanged(event);
     events.push(event);
     return this.saveEvents(events) ? clone(event) : null;
   }
 
   updateEvent(id, updates) {
-    const events = this.loadEvents();
-    const index = events.findIndex((event) => String(event.id) === String(id));
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && !event._deleted);
     if (index < 0) return null;
     const next = this.normalizeEvent({
       ...events[index],
@@ -195,16 +331,25 @@ class EventStore {
       createdAt: events[index].createdAt,
       updatedAt: new Date().toISOString(),
     });
+    this.markChanged(next);
     events[index] = next;
     return this.saveEvents(events) ? clone(next) : null;
   }
 
   deleteEvent(id) {
-    const events = this.loadEvents();
-    const index = events.findIndex((event) => String(event.id) === String(id));
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && !event._deleted);
     if (index < 0) return null;
-    const [removed] = events.splice(index, 1);
-    return this.saveEvents(events) ? clone(removed) : null;
+    const now = new Date().toISOString();
+    const event = events[index];
+    event._deleted = true;
+    event._deletedAt = now;
+    const trashUntil = new Date();
+    trashUntil.setDate(trashUntil.getDate() + 30);
+    event._trashUntil = formatDate(trashUntil);
+    this.markChanged(event);
+    events[index] = event;
+    return this.saveEvents(events) ? clone(event) : null;
   }
 
   getEvent(id) {
@@ -212,8 +357,139 @@ class EventStore {
     return event ? clone(event) : null;
   }
 
+  getAnyEvent(id) {
+    const event = this.loadAllEvents().find((item) => String(item.id) === String(id));
+    return event ? clone(event) : null;
+  }
+
+  findEventByUuid(uuid) {
+    const event = this.loadAllEvents().find((item) => item._uuid === uuid);
+    return event ? clone(event) : null;
+  }
+
+  listTrash() {
+    return this.loadAllEvents()
+      .filter((event) => event._deleted)
+      .sort((left, right) => String(right._deletedAt || '').localeCompare(String(left._deletedAt || '')));
+  }
+
+  restoreFromTrash(id) {
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && event._deleted);
+    if (index < 0) return null;
+    const event = events[index];
+    event._deleted = false;
+    delete event._deletedAt;
+    delete event._trashUntil;
+    this.markChanged(event);
+    events[index] = event;
+    return this.saveEvents(events) ? clone(event) : null;
+  }
+
+  purgeTrash(referenceDate = new Date()) {
+    const referenceKey = formatDate(referenceDate);
+    const events = this.loadAllEvents();
+    const kept = events.filter((event) => {
+      if (!event._deleted) return true;
+      return event._trashUntil && event._trashUntil >= referenceKey;
+    });
+    const purged = events.length - kept.length;
+    if (purged > 0) this.saveEvents(kept);
+    return purged;
+  }
+
+  removeEventPermanently(id) {
+    const events = this.loadAllEvents();
+    const kept = events.filter((event) => String(event.id) !== String(id));
+    if (kept.length === events.length) return false;
+    return this.saveEvents(kept);
+  }
+
+  applyRemoteEvent(eventId, data, version, operationId) {    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => event._uuid === eventId);
+    const now = new Date().toISOString();
+    if (index >= 0) {
+      const next = this.normalizeEvent({
+        ...events[index],
+        ...clone(data || {}),
+        id: events[index].id,
+        createdAt: events[index].createdAt,
+        updatedAt: now,
+      });
+      this.applyRemoteMeta(next, { eventId, version, operationId });
+      next._deleted = false;
+      delete next._deletedAt;
+      delete next._trashUntil;
+      events[index] = next;
+      return this.saveEvents(events) ? clone(next) : null;
+    }
+    const created = this.normalizeEvent({
+      ...clone(data || {}),
+      id: this.generateId(),
+      createdAt: now,
+      updatedAt: now,
+    });
+    this.applyRemoteMeta(created, { eventId, version, operationId });
+    created._baseVersion = Number(version) || 0;
+    events.push(created);
+    return this.saveEvents(events) ? clone(created) : null;
+  }
+
+  ensureSyncMetadata() {
+    const events = this.loadAllEvents();
+    let assigned = 0;
+    let changed = false;
+    for (const event of events) {
+      if (!event._uuid) {
+        event._uuid = this.generateUuid();
+        assigned += 1;
+      }
+      if (!Number.isFinite(Number(event._version))) {
+        event._version = 1;
+        event._opId = this.generateUuid();
+        event._baseVersion = 0;
+        changed = true;
+      }
+    }
+    if (changed) this.saveEvents(events);
+    return { total: events.length, assignedUuids: assigned };
+  }
+
+  snapshotForAgent(limit = 500) {
+    const events = this.loadEvents().slice(-limit);
+    return events.map((event) => {
+      const sanitized = this.sanitizeForSync(event);
+      return {
+        id: event._uuid,
+        ...sanitized,
+      };
+    });
+  }
+
+  applySyncAck(eventId, version, operationId) {
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => event._uuid === eventId);
+    if (index < 0) return null;
+    this.applyRemoteMeta(events[index], { eventId, version, operationId });
+    return this.saveEvents(events) ? clone(events[index]) : null;
+  }
+
+  markTrashedFromRemote(eventId, trashUntil) {
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => event._uuid === eventId);
+    if (index < 0) return null;
+    const event = events[index];
+    event._deleted = true;
+    event._deletedAt = new Date().toISOString();
+    event._trashUntil = trashUntil || formatDate(new Date());
+    events[index] = event;
+    return this.saveEvents(events) ? clone(event) : null;
+  }
+
   isRecurringOnDate(event, dateStr) {
-    if (!event.isRecurring || dateStr < event.startDate || dateStr > event.endDate) return false;
+    if (!event.isRecurring || dateStr < event.startDate) return false;
+    if (event.endDate && dateStr > event.endDate) return false;
+    if (!this.isWithinActiveBounds(event, dateStr)) return false;
     const date = parseDate(dateStr);
     const start = parseDate(event.startDate);
     if (!date || !start) return false;
@@ -221,6 +497,9 @@ class EventStore {
       return (event.recurringDays || []).includes(date.getDay());
     }
     if (event.recurringType === 'monthly') {
+      if (Array.isArray(event.recurringMonthDays) && event.recurringMonthDays.length) {
+        return event.recurringMonthDays.includes(date.getDate());
+      }
       return date.getDate() === start.getDate();
     }
     return true;
@@ -270,6 +549,17 @@ class EventStore {
     const result = [];
 
     for (const event of events) {
+      if (!this.isWithinActiveBounds(event, date)) continue;
+      if (event.isLongTerm) {
+        if (event.isCompleted) {
+          const inHistory = date >= event.startDate && date <= event.completedDate;
+          if (inHistory) result.push(this.instanceForDate(event, date));
+        } else if (date >= event.startDate) {
+          result.push(this.instanceForDate(event, date));
+        }
+        continue;
+      }
+
       if (event.isDeadline) {
         const active = !event.isDeadlineCompleted
           && date >= event.startDate
@@ -332,7 +622,7 @@ class EventStore {
   calculateRecurringProgress(event, currentDateStr) {
     let total = 0;
     const start = parseDate(event.startDate);
-    const end = parseDate(event.endDate);
+    const end = parseDate(event.endDate || currentDateStr);
     if (!start || !end) return { completed: 0, total: 0, percentage: 0 };
     for (let cursor = startOfDay(start); cursor <= end; cursor = addDays(cursor, 1)) {
       if (this.isRecurringOnDate(event, formatDate(cursor))) total += 1;
@@ -347,8 +637,8 @@ class EventStore {
 
   toggleComplete(id, dateStr) {
     const date = this.validDate(dateStr) || formatDate(new Date());
-    const events = this.loadEvents();
-    const index = events.findIndex((event) => String(event.id) === String(id));
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && !event._deleted);
     if (index < 0) return null;
     const event = events[index];
     const now = new Date().toISOString();
@@ -381,6 +671,7 @@ class EventStore {
     }
 
     event.updatedAt = now;
+    this.markChanged(event);
     events[index] = this.normalizeEvent(event);
     return this.saveEvents(events) ? this.instanceForDate(events[index], date) : null;
   }
@@ -388,14 +679,43 @@ class EventStore {
   getTimerRecord(id, dateStr) {
     const event = this.getEvent(id);
     if (!event) return null;
+    if (event.isLongTerm) {
+      return clone({
+        elapsedSeconds: Number(event.focusTotalSeconds) || 0,
+        runningSince: event.focusRunningSince || null,
+      });
+    }
     return clone(event.timerRecords?.[dateStr] || { elapsedSeconds: 0, runningSince: null });
   }
 
   updateTimer(id, dateStr, shouldRun) {
-    const events = this.loadEvents();
-    const index = events.findIndex((event) => String(event.id) === String(id));
+    const events = this.loadAllEvents();
+    const index = events.findIndex((event) => String(event.id) === String(id) && !event._deleted);
     if (index < 0) return null;
     const event = events[index];
+
+    if (event.isLongTerm) {
+      const running = Boolean(event.focusRunningSince);
+      if (shouldRun && !running) {
+        event.focusRunningSince = new Date().toISOString();
+      } else if (!shouldRun && running) {
+        const startedAt = new Date(event.focusRunningSince).getTime();
+        const elapsed = Number.isFinite(startedAt)
+          ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+          : 0;
+        event.focusTotalSeconds = (Number(event.focusTotalSeconds) || 0) + elapsed;
+        event.focusRunningSince = null;
+      }
+      event.updatedAt = new Date().toISOString();
+      this.markChanged(event);
+      events[index] = this.normalizeEvent(event);
+      const record = {
+        elapsedSeconds: Number(events[index].focusTotalSeconds) || 0,
+        runningSince: events[index].focusRunningSince || null,
+      };
+      return this.saveEvents(events) ? clone(record) : null;
+    }
+
     event.timerRecords ||= {};
     const record = event.timerRecords[dateStr] || { elapsedSeconds: 0, runningSince: null };
 
@@ -412,12 +732,13 @@ class EventStore {
 
     event.timerRecords[dateStr] = record;
     event.updatedAt = new Date().toISOString();
+    this.markChanged(event);
     events[index] = this.normalizeEvent(event);
     return this.saveEvents(events) ? clone(record) : null;
   }
 
   applyActions(actions) {
-    const events = this.loadEvents();
+    const events = this.loadAllEvents();
     const results = [];
     const now = new Date().toISOString();
 
@@ -429,30 +750,46 @@ class EventStore {
           createdAt: now,
           updatedAt: now,
         });
+        delete created._uuid;
+        this.markChanged(created);
         events.push(created);
-        results.push({ type: 'create', success: true, event: clone(created) });
+        results.push({
+          type: 'create', success: true, event: clone(created),
+          syncChanges: [{ event: clone(created), op: 'upsert' }],
+        });
         continue;
       }
 
-      const index = events.findIndex((event) => String(event.id) === String(action.id));
+      const index = events.findIndex(
+        (event) => String(event.id) === String(action.id) && !event._deleted,
+      );
       if (index < 0) {
         results.push({ type: action.type, success: false, id: action.id });
         continue;
       }
 
+      const scope = ['future', 'past', 'all'].includes(action.scope) ? action.scope : 'future';
+      const effectiveDate = this.validDate(action.effective_date) || formatDate(new Date());
+
       if (action.type === 'update') {
-        const updated = this.normalizeEvent({
-          ...events[index],
-          ...(action.updates || {}),
-          id: events[index].id,
-          createdAt: events[index].createdAt,
-          updatedAt: now,
-        });
-        events[index] = updated;
-        results.push({ type: 'update', success: true, event: clone(updated) });
+        const result = this.applyScopedUpdate(events, index, action.updates || {}, scope, effectiveDate, now);
+        results.push(result);
+      } else if (action.type === 'delete' && scope !== 'all') {
+        const result = this.applyScopedDelete(events, index, scope, effectiveDate, now);
+        results.push(result);
       } else if (action.type === 'delete') {
-        const [removed] = events.splice(index, 1);
-        results.push({ type: 'delete', success: true, event: clone(removed) });
+        const target = events[index];
+        target._deleted = true;
+        target._deletedAt = now;
+        const trashUntil = new Date();
+        trashUntil.setDate(trashUntil.getDate() + 30);
+        target._trashUntil = formatDate(trashUntil);
+        this.markChanged(target);
+        events[index] = target;
+        results.push({
+          type: 'delete', success: true, event: clone(target),
+          syncChanges: [{ event: clone(target), op: 'delete' }],
+        });
       }
     }
 
@@ -461,6 +798,181 @@ class EventStore {
       return results.map((result) => ({ ...result, success: false, error: 'save_failed' }));
     }
     return results;
+  }
+
+  isWithinActiveBounds(event, dateStr) {
+    if (event.activeStartDate && dateStr < event.activeStartDate) return false;
+    if (event.activeEndDate && dateStr > event.activeEndDate) return false;
+    return true;
+  }
+
+  eventBounds(event) {
+    const start = event.activeStartDate || event.startDate || event.date;
+    let end = null;
+    if (event.activeEndDate) end = event.activeEndDate;
+    else if (event.isRecurring) end = event.endDate || null;
+    else if (event.isDeadline) {
+      end = event.isDeadlineCompleted
+        ? (event.deadlineCompletedDate || event.deadlineDate)
+        : null;
+    }
+    else if (event.isLongTerm) end = event.isCompleted ? event.completedDate : null;
+    else end = event.date;
+    return { start, end };
+  }
+
+  scopedSide(event, scope, effectiveDate) {
+    const { start, end } = this.eventBounds(event);
+    if (scope === 'future') {
+      if (end && end < effectiveDate) return 'none';
+      return start >= effectiveDate ? 'whole' : 'split';
+    }
+    if (start > effectiveDate) return 'none';
+    return end && end <= effectiveDate ? 'whole' : 'split';
+  }
+
+  eventFitsScope(event, scope, effectiveDate) {
+    if (scope === 'all') return true;
+    const { start, end } = this.eventBounds(event);
+    if (scope === 'future') return !end || end >= effectiveDate;
+    return !start || start <= effectiveDate;
+  }
+
+  markDeletedForAction(event, now) {
+    event._deleted = true;
+    event._deletedAt = now;
+    const trashUntil = new Date();
+    trashUntil.setDate(trashUntil.getDate() + 30);
+    event._trashUntil = formatDate(trashUntil);
+    this.markChanged(event);
+    return event;
+  }
+
+  splitReplacement(source, updates, scope, effectiveDate, now) {
+    const replacement = clone({ ...source, ...updates });
+    for (const key of Object.keys(replacement)) {
+      if (key.startsWith('_')) delete replacement[key];
+    }
+    delete replacement.id;
+    delete replacement.activeStartDate;
+    delete replacement.activeEndDate;
+    replacement.createdAt = now;
+    replacement.updatedAt = now;
+    replacement.timerRecords = Object.fromEntries(
+      Object.entries(replacement.timerRecords || {}).filter(([date]) => (
+        scope === 'future' ? date >= effectiveDate : date <= effectiveDate
+      )),
+    );
+    if (replacement.isRecurring) {
+      replacement.completedDates = (replacement.completedDates || []).filter((date) => (
+        scope === 'future' ? date >= effectiveDate : date <= effectiveDate
+      ));
+    }
+    if (replacement.isLongTerm && scope === 'future') {
+      replacement.focusTotalSeconds = 0;
+      replacement.focusRunningSince = null;
+      replacement.isCompleted = false;
+      delete replacement.completedDate;
+      delete replacement.completedAt;
+    }
+    if (replacement.isDeadline && scope === 'future') {
+      replacement.isDeadlineCompleted = false;
+      delete replacement.deadlineCompletedDate;
+      delete replacement.completedAt;
+    }
+    if (scope === 'future') replacement.activeStartDate = effectiveDate;
+    else replacement.activeEndDate = effectiveDate;
+    const normalized = this.normalizeEvent(replacement);
+    const bounds = this.eventBounds(normalized);
+    if (bounds.start && bounds.end && bounds.end < bounds.start) return null;
+    this.markChanged(normalized);
+    return normalized;
+  }
+
+  applyScopedUpdate(events, index, updates, scope, effectiveDate, now) {
+    const source = events[index];
+    if (scope === 'all') {
+      const updated = this.normalizeEvent({
+        ...source, ...clone(updates), id: source.id,
+        createdAt: source.createdAt, updatedAt: now,
+      });
+      this.markChanged(updated);
+      events[index] = updated;
+      return {
+        type: 'update', success: true, event: clone(updated),
+        affectedEvents: [clone(updated)], syncChanges: [{ event: clone(updated), op: 'upsert' }],
+      };
+    }
+    const side = this.scopedSide(source, scope, effectiveDate);
+    if (side === 'none') {
+      return { type: 'update', success: false, id: source.id, error: 'scope_not_applicable' };
+    }
+    if (side === 'whole') {
+      const updated = this.normalizeEvent({
+        ...source, ...clone(updates), id: source.id,
+        createdAt: source.createdAt, updatedAt: now,
+      });
+      if (!this.eventFitsScope(updated, scope, effectiveDate)) {
+        return { type: 'update', success: false, id: source.id, error: 'updated_range_outside_scope' };
+      }
+      this.markChanged(updated);
+      events[index] = updated;
+      return {
+        type: 'update', success: true, event: clone(updated),
+        affectedEvents: [clone(updated)], syncChanges: [{ event: clone(updated), op: 'upsert' }],
+      };
+    }
+
+    const replacement = this.splitReplacement(source, updates, scope, effectiveDate, now);
+    if (!replacement) {
+      return { type: 'update', success: false, id: source.id, error: 'invalid_scoped_range' };
+    }
+    if (scope === 'future') {
+      source.activeEndDate = formatDate(addDays(parseDate(effectiveDate), -1));
+    } else {
+      source.activeStartDate = formatDate(addDays(parseDate(effectiveDate), 1));
+    }
+    source.updatedAt = now;
+    this.markChanged(source);
+    events[index] = this.normalizeEvent(source);
+    events.push(replacement);
+    return {
+      type: 'update', success: true, event: clone(replacement),
+      affectedEvents: [clone(events[index]), clone(replacement)], split: true,
+      syncChanges: [
+        { event: clone(events[index]), op: 'upsert' },
+        { event: clone(replacement), op: 'upsert' },
+      ],
+    };
+  }
+
+  applyScopedDelete(events, index, scope, effectiveDate, now) {
+    const source = events[index];
+    const side = this.scopedSide(source, scope, effectiveDate);
+    if (side === 'none') {
+      return { type: 'delete', success: false, id: source.id, error: 'scope_not_applicable' };
+    }
+    if (side === 'whole') {
+      this.markDeletedForAction(source, now);
+      events[index] = source;
+      return {
+        type: 'delete', success: true, event: clone(source),
+        affectedEvents: [clone(source)], syncChanges: [{ event: clone(source), op: 'delete' }],
+      };
+    }
+    if (scope === 'future') {
+      source.activeEndDate = formatDate(addDays(parseDate(effectiveDate), -1));
+    } else {
+      source.activeStartDate = formatDate(addDays(parseDate(effectiveDate), 1));
+    }
+    source.updatedAt = now;
+    this.markChanged(source);
+    events[index] = this.normalizeEvent(source);
+    return {
+      type: 'delete', success: true, event: clone(events[index]),
+      affectedEvents: [clone(events[index])], truncated: true,
+      syncChanges: [{ event: clone(events[index]), op: 'upsert' }],
+    };
   }
 }
 

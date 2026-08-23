@@ -3,8 +3,9 @@
 const { parseQuickCommand } = require('./quick-parser');
 
 class CommandRouter {
-  constructor(eventStore) {
+  constructor(eventStore, options = {}) {
     this.eventStore = eventStore;
+    this.onLocalChange = options.onLocalChange || null;
   }
 
   preview(text, contextDate) {
@@ -44,6 +45,7 @@ class CommandRouter {
           message: '保存日程失败，请稍后重试。',
         };
       }
+      if (this.onLocalChange) this.onLocalChange(event.id, 'upsert');
       return {
         handled: true,
         route: 'local-create',

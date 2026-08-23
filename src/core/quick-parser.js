@@ -111,7 +111,7 @@ function cleanTitle(text, tokens, options = {}) {
   }
   title = title
     .replace(/每周(?:周?[一二三四五六日天](?:和|、|,)?\s*)+/g, ' ')
-    .replace(/(?:请|帮我|麻烦|添加|新增|创建|安排|记下|提醒我)/g, ' ')
+    .replace(/(?:请|帮我|麻烦|添加|新增|创建|安排|记下|提醒我|长期任务)/g, ' ')
     .replace(/(?:每天|每日|每晚|每周|每月)/g, ' ')
     .replace(/[，,。！？!?]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -165,11 +165,24 @@ function parseQuickCommand(input, options = {}) {
   const durationResult = parseDuration(text);
   const isDeadline = isDeadlineExpression(text);
   const isRecurring = !isDeadline && /(?:每天|每日|每晚|每周|每月)/.test(text);
+  const isLongTerm = !isDeadline && !isRecurring && /长期任务/.test(text);
   const recurringType = /每周/.test(text) ? 'weekly' : (/每月/.test(text) ? 'monthly' : 'daily');
   const recurringDays = [];
   if (recurringType === 'weekly') {
     for (const match of text.matchAll(/(?:周|星期)([一二三四五六日天])/g)) {
       recurringDays.push(WEEKDAY_MAP[match[1]]);
+    }
+  }
+  const recurringMonthDays = [];
+  const monthDayPhrase = [];
+  if (recurringType === 'monthly') {
+    const phraseMatch = text.match(/每月\s*((?:\d{1,2}\s*[号日]?\s*(?:[和、,，]\s*)?)+)/);
+    if (phraseMatch) {
+      monthDayPhrase.push(phraseMatch[0]);
+      for (const match of phraseMatch[1].matchAll(/(\d{1,2})(?:号|日)?/g)) {
+        const day = Number(match[1]);
+        if (day >= 1 && day <= 31 && !recurringMonthDays.includes(day)) recurringMonthDays.push(day);
+      }
     }
   }
 
@@ -184,6 +197,7 @@ function parseQuickCommand(input, options = {}) {
     timeResult.token,
     durationResult.token,
     endMatch?.[0] || '',
+    ...monthDayPhrase,
   ], { isDeadline, isRecurring });
   const targetDate = formatDate(dateResult.date || contextDate);
   const event = {
@@ -195,7 +209,10 @@ function parseQuickCommand(input, options = {}) {
   };
 
   if (durationResult.minutes > 0) event.targetDurationMinutes = durationResult.minutes;
-  if (isDeadline) {
+  if (isLongTerm) {
+    event.isLongTerm = true;
+    event.startDate = targetDate;
+  } else if (isDeadline) {
     event.isDeadline = true;
     event.startDate = formatDate(now);
     event.deadlineDate = targetDate;
@@ -205,6 +222,7 @@ function parseQuickCommand(input, options = {}) {
     event.endDate = endDate || formatDate(addDays(dateResult.date || now, 30));
     event.recurringType = recurringType;
     if (recurringDays.length) event.recurringDays = [...new Set(recurringDays)];
+    if (recurringType === 'monthly') event.recurringMonthDays = recurringMonthDays;
   }
 
   return {
@@ -218,6 +236,7 @@ function parseQuickCommand(input, options = {}) {
       duration: durationResult.minutes,
       deadline: isDeadline,
       recurring: isRecurring,
+      longTerm: isLongTerm,
     },
     requiresAgent: false,
   };

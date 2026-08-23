@@ -1,4 +1,4 @@
-# HoYoCalendar V3.0
+# HoYoCalendar V3.0.5
 
 HoYoCalendar 是一款面向日常效率工作的 Windows 桌面日程工具。V3.0
 采用本地优先架构：常见新增、查询、完成和恢复都在本机立即执行，AI 只处理
@@ -43,7 +43,7 @@ HoYoCalendar 是一款面向日常效率工作的 Windows 桌面日程工具。V
 ## 安装
 
 从 [GitHub Releases](https://github.com/wujing1997/hoyoCalendarV1/releases)
-下载 `HoYoCalendarV3.0-setup.exe` 并运行。
+下载 `HoYoCalendarV3.0.5-setup.exe` 并运行。
 
 安装包内已包含 Electron 应用与 Python Agent 服务，普通使用不需要另外安装
 Node.js 或 Python。
@@ -154,7 +154,7 @@ npm run build:electron
 Windows 安装包输出到：
 
 ```text
-dist/HoYoCalendarV3.0-setup.exe
+dist/HoYoCalendarV3.0.5-setup.exe
 ```
 
 ## 发布记录
