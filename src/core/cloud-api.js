@@ -100,6 +100,7 @@ class CloudApi {
     this.baseUrl = options.baseUrl || DEFAULT_SERVER_URL;
     this.timeoutMs = options.timeoutMs || 45000;
     this.request = options.request || request;
+    this.onRefreshToken = options.onRefreshToken || null;
     this.bearerToken = null;
     this.refreshToken = null;
     this.deviceId = null;
@@ -169,6 +170,9 @@ class CloudApi {
       });
       if (response.ok) {
         this.setTokens(response.data);
+        if (this.onRefreshToken && this.refreshToken) {
+          await this.onRefreshToken(this.refreshToken);
+        }
         return { ok: true, invalid: false };
       }
       const invalid = response.status === 400 || response.status === 401 || response.status === 403;

@@ -39,11 +39,19 @@ function friendlyCloudError(error) {
 
 const credentialStore = {
   getRefreshToken: () => ipcRenderer.invoke('cloud-credential-get-refresh-token'),
-  setRefreshToken: (token) => ipcRenderer.invoke('cloud-credential-set-refresh-token', token),
+  setRefreshToken: async (token) => {
+    const stored = await ipcRenderer.invoke('cloud-credential-set-refresh-token', token);
+    if (!stored) throw new Error('无法安全保存登录凭据');
+    return true;
+  },
   clearRefreshToken: () => ipcRenderer.invoke('cloud-credential-clear'),
 };
 
-const cloudApi = new CloudApi({ baseUrl: DEFAULT_SERVER_URL, timeoutMs: 45000 });
+const cloudApi = new CloudApi({
+  baseUrl: DEFAULT_SERVER_URL,
+  timeoutMs: 45000,
+  onRefreshToken: (token) => credentialStore.setRefreshToken(token),
+});
 
 const syncEngine = new SyncEngine({
   eventStore,

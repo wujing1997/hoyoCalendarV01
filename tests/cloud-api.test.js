@@ -116,6 +116,7 @@ test('authenticated calls attach the bearer header', async () => {
 
 test('401 on authenticated calls triggers refresh once then retries', async () => {
   let calls = 0;
+  const persistedTokens = [];
   const { server, port } = await startServer((req, res) => {
     calls += 1;
     if (req.url === '/api/v1/auth/refresh') {
@@ -130,12 +131,16 @@ test('401 on authenticated calls triggers refresh once then retries', async () =
     jsonHandler(200, { id: 'u1', email: 'a@b.c', status: 'active', created_at: '2026-01-01T00:00:00Z' })(req, res);
   });
   try {
-    const api = new CloudApi({ baseUrl: `http://127.0.0.1:${port}` });
+    const api = new CloudApi({
+      baseUrl: `http://127.0.0.1:${port}`,
+      onRefreshToken: async (token) => persistedTokens.push(token),
+    });
     api.bearerToken = 'at-old';
     api.refreshToken = 'rt-old';
     const me = await api.me();
     assert.equal(me.email, 'a@b.c');
     assert.equal(api.bearerToken, 'at-new');
+    assert.deepEqual(persistedTokens, ['rt-new']);
     assert.equal(calls, 3);
   } finally {
     server.close();
@@ -304,17 +309,22 @@ test('refreshSession without any refresh token reports no_token', async () => {
 });
 
 test('successful refreshSession exchanges tokens and reports ok', async () => {
+  const persistedTokens = [];
   const { server, port } = await startServer((_req, res) => {
     jsonHandler(200, { access_token: 'at-new', refresh_token: 'rt-new', expires_in: 900, device_id: 'd1' })(_req, res);
   });
   try {
-    const api = new CloudApi({ baseUrl: `http://127.0.0.1:${port}` });
+    const api = new CloudApi({
+      baseUrl: `http://127.0.0.1:${port}`,
+      onRefreshToken: async (token) => persistedTokens.push(token),
+    });
     api.refreshToken = 'rt-old';
     const result = await api.refreshSession();
     assert.equal(result.ok, true);
     assert.equal(result.invalid, false);
     assert.equal(api.bearerToken, 'at-new');
     assert.equal(api.refreshToken, 'rt-new');
+    assert.deepEqual(persistedTokens, ['rt-new']);
   } finally {
     server.close();
   }

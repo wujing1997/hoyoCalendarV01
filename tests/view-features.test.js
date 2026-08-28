@@ -379,6 +379,11 @@ test('startup restores the session before sync can run', () => {
   assert.match(initCloud[0], /syncEngine\.restoreSession\(\)/);
 });
 
+test('rotated refresh tokens are persisted through the credential store', () => {
+  assert.match(preloadSource, /onRefreshToken:\s*\(token\) => credentialStore\.setRefreshToken\(token\)/);
+  assert.match(preloadSource, /if \(!stored\) throw new Error\('无法安全保存登录凭据'\)/);
+});
+
 test('preload event bridge clears credentials on logout via signOut', () => {
   assert.match(preloadSource, /logout: async \(\) => \{[\s\S]*?syncEngine\.signOut\(\)/);
 });
