@@ -10,6 +10,86 @@ const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const rendererSource = fs.readFileSync(path.join(root, 'renderer.js'), 'utf8');
 const stylesSource = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
 const preloadSource = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
+const mainSource = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+
+// ------------------------------------------------------------------ assistant context rail
+
+test('assistant lives beside task details instead of blocking the calendar in a modal', () => {
+  const panel = indexHtml.match(/<aside class="details-panel" id="contextPanel"[\s\S]*?<\/aside>/);
+  assert.ok(panel, 'right context panel should exist');
+  assert.match(panel[0], /id="detailsContextTab"/);
+  assert.match(panel[0], /id="assistantContextTab"/);
+  assert.match(panel[0], /id="assistantContext"/);
+  assert.doesNotMatch(indexHtml, /id="assistantOverlay"/);
+});
+
+test('assistant entry points switch the right context rail and preserve a narrow-window drawer', () => {
+  assert.match(rendererSource, /function setContextPanel\(name\)/);
+  assert.match(rendererSource, /panel\.classList\.toggle\('assistant-open', assistantActive\)/);
+  assert.match(rendererSource, /\$\('#assistantContext'\)\.hidden = !assistantActive/);
+  assert.match(stylesSource, /\.details-panel\.assistant-open\s*\{[\s\S]*?position:\s*fixed;/);
+  assert.match(stylesSource, /@media \(max-width: 720px\)[\s\S]*?\.details-panel\.assistant-open\s*\{[\s\S]*?width:\s*100%;/);
+});
+
+test('Font Awesome remains the primary icon source while assistant branding matches the main worktree', () => {
+  assert.match(indexHtml, /@fortawesome\/fontawesome-free\/css\/all\.min\.css/);
+  assert.match(indexHtml, /node_modules\/lucide\/dist\/umd\/lucide\.js/);
+  assert.match(indexHtml, /class="assistant-logo" data-lucide="sparkles"/);
+  assert.match(rendererSource, /FONT_AWESOME_ICONS/);
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  assert.ok(packageJson.dependencies['@fortawesome/fontawesome-free']);
+  assert.ok(packageJson.dependencies.lucide);
+  assert.equal(packageJson.build.win.icon, 'assets/app-icon.ico');
+  assert.ok(fs.existsSync(path.join(root, 'assets', 'app-icon.png')));
+  assert.ok(fs.existsSync(path.join(root, 'assets', 'app-icon.ico')));
+});
+
+test('clickable icons use consistent hitboxes without letting glyphs intercept clicks', () => {
+  assert.match(stylesSource, /--icon-hitbox:\s*34px;/);
+  assert.match(stylesSource, /--icon-hitbox-compact:\s*32px;/);
+  assert.match(stylesSource, /\.app-icon\s*\{[\s\S]*?pointer-events:\s*none;/);
+  assert.match(stylesSource, /\.icon-btn\s*\{[\s\S]*?width:\s*var\(--icon-hitbox\);[\s\S]*?height:\s*var\(--icon-hitbox\);/);
+  assert.match(stylesSource, /\.icon-btn\.small\s*\{[\s\S]*?width:\s*var\(--icon-hitbox-compact\);[\s\S]*?height:\s*var\(--icon-hitbox-compact\);/);
+  assert.match(stylesSource, /\.task-check\s*\{[\s\S]*?width:\s*var\(--icon-hitbox\);[\s\S]*?height:\s*var\(--icon-hitbox\);/);
+  assert.match(stylesSource, /\.task-check::before\s*\{[\s\S]*?width:\s*22px;[\s\S]*?height:\s*22px;/);
+  assert.match(stylesSource, /@media \(max-width: 720px\)[\s\S]*?\.topbar-right \.sync-status-pill\s*\{\s*display:\s*none;/);
+});
+
+test('settings no longer expose obsolete client-side AI provider configuration', () => {
+  assert.doesNotMatch(indexHtml, /<h2>AI 服务<\/h2>/);
+  assert.doesNotMatch(indexHtml, /id="aiProvider"|id="providerFields"/);
+  assert.doesNotMatch(rendererSource, /providerDefaults|captureProviderFields|renderProviderFields/);
+});
+
+test('composer AI mode bypasses local command parsing and submits directly to the agent', () => {
+  assert.match(indexHtml, /id="composerAssistant"[\s\S]*?aria-pressed="false"/);
+  assert.match(rendererSource, /function setAssistantComposerMode\(enabled\)/);
+  assert.match(rendererSource, /if \(state\.assistantComposerMode\) \{[\s\S]*?openAssistant\(\);[\s\S]*?await sendAssistantMessage\(text\);[\s\S]*?return;/);
+  assert.match(rendererSource, /setAssistantComposerMode\(true\);[\s\S]*?if \(\$\('#quickInput'\)\.value\.trim\(\)\) await submitQuickCommand\(\);/);
+  assert.match(rendererSource, /AI 助手模式，按 Enter 直接提交给模型/);
+});
+
+test('assistant uses the main worktree sparkles mark and a paper plane for submission', () => {
+  assert.match(indexHtml, /id="composerAssistant"[\s\S]*?data-lucide="sparkles"/);
+  assert.match(indexHtml, /id="quickSubmit"[\s\S]*?fa-paper-plane/);
+  assert.doesNotMatch(indexHtml, /id="quickSubmit"[\s\S]{0,160}?fa-plus/);
+  assert.match(rendererSource, /window\.lucide\?\.createIcons/);
+});
+
+test('assistant text attachments use a constrained local picker and existing model message channel', () => {
+  assert.match(indexHtml, /id="quickAttachment"[\s\S]*?fa-paperclip/);
+  assert.match(indexHtml, /id="assistantAttachment"[\s\S]*?fa-paperclip/);
+  assert.match(mainSource, /ATTACHMENT_MAX_FILES = 5/);
+  assert.match(mainSource, /ATTACHMENT_MAX_BYTES = 512 \* 1024/);
+  assert.match(mainSource, /assistant-pick-attachments/);
+  assert.match(preloadSource, /contextBridge\.exposeInMainWorld\('attachmentAPI'/);
+  assert.match(rendererSource, /function messageWithAttachments\(message, attachments\)/);
+  assert.match(rendererSource, /window\.aiAPI\?\.chat\(modelMessage\)/);
+});
+
+test('attachment remove control keeps a full compact icon hitbox', () => {
+  assert.match(stylesSource, /\.attachment-remove\s*\{[\s\S]*?width:\s*32px;[\s\S]*?height:\s*32px;/);
+});
 
 // ------------------------------------------------------------------ return button
 
@@ -18,7 +98,7 @@ test('main header contains a return-today button with a mutable label', () => {
   assert.match(indexHtml, /id="returnTodayLabel"/);
   const block = indexHtml.match(/<button class="text-btn return-today-button" id="returnTodayButton"[\s\S]*?<\/button>/);
   assert.ok(block, 'return button markup should exist');
-  assert.match(block[0], /data-lucide="undo-2"/);
+  assert.match(block[0], /fa-arrow-rotate-left/);
 });
 
 test('return button is hidden by default via visibility so layout does not jump', () => {
@@ -325,8 +405,8 @@ test('task meta shows the target duration in 时:分:秒', () => {
   assert.match(rendererSource, /\$\{icon\('timer'\)\} 目标 \$\{formatElapsed\(targetSeconds\)\}/);
 });
 
-test('task row grid reserves a fixed column for the timer control', () => {
-  assert.match(stylesSource, /grid-template-columns: 30px 58px minmax\(0, 1fr\) 34px auto 32px;/);
+test('task row grid reserves fixed hitbox columns for completion, timer and menu controls', () => {
+  assert.match(stylesSource, /grid-template-columns: 34px 58px minmax\(0, 1fr\) 34px auto 34px;/);
   assert.match(stylesSource, /\.timer-row-button \{/);
   assert.match(stylesSource, /\.timer-row-spacer \{/);
 });
@@ -382,6 +462,14 @@ test('startup restores the session before sync can run', () => {
 test('rotated refresh tokens are persisted through the credential store', () => {
   assert.match(preloadSource, /onRefreshToken:\s*\(token\) => credentialStore\.setRefreshToken\(token\)/);
   assert.match(preloadSource, /if \(!stored\) throw new Error\('无法安全保存登录凭据'\)/);
+});
+
+test('remote sync changes reload and redraw the visible calendar', () => {
+  const subscription = rendererSource.match(/window\.cloudAPI\.subscribeState\(\(snapshot\) => \{[\s\S]*?\n\s*\}\);/);
+  assert.ok(subscription, 'cloud state subscription should exist');
+  assert.match(subscription[0], /previousDataRevision/);
+  assert.match(subscription[0], /snapshot\.dataRevision/);
+  assert.match(subscription[0], /renderAll\(\)/);
 });
 
 test('preload event bridge clears credentials on logout via signOut', () => {

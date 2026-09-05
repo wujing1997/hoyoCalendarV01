@@ -8,6 +8,7 @@
     content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:*;"
   >
   <title>HoYoCalendar V3.0.5</title>
+  <link rel="stylesheet" href="node_modules/@fortawesome/fontawesome-free/css/all.min.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-theme="light">
@@ -16,20 +17,20 @@
       <div class="topbar-left">
         <div class="brand-cluster">
           <span class="brand-mark" aria-hidden="true">
-            <i data-lucide="calendar-days"></i>
+            <i class="app-icon fa-solid fa-calendar-days"></i>
           </span>
           <span class="brand-name">HoYoCalendar</span>
         </div>
         <div class="date-navigator">
           <button class="icon-btn" id="previousDate" title="上一个日期" aria-label="上一个日期">
-            <i data-lucide="chevron-left"></i>
+            <i class="app-icon fa-solid fa-chevron-left"></i>
           </button>
           <button class="date-title-button" id="dateTitleButton" title="选择日期"></button>
           <button class="icon-btn" id="nextDate" title="下一个日期" aria-label="下一个日期">
-            <i data-lucide="chevron-right"></i>
+            <i class="app-icon fa-solid fa-chevron-right"></i>
           </button>
           <button class="text-btn today-button" id="todayButton" title="返回今天" aria-label="返回今天">
-            <i data-lucide="calendar-days"></i>
+            <i class="app-icon fa-solid fa-calendar-days"></i>
             <span>今天</span>
           </button>
         </div>
@@ -45,36 +46,36 @@
 
       <div class="topbar-right">
         <button class="sync-status-pill" id="syncStatusButton" title="云端同步状态" aria-label="云端同步状态">
-          <i data-lucide="cloud" id="syncStatusIcon"></i>
+          <i class="app-icon fa-solid fa-cloud" id="syncStatusIcon"></i>
           <span id="syncStatusLabel">未登录</span>
         </button>
         <button class="icon-btn" id="accountButton" title="账号与云端同步" aria-label="账号与云端同步">
-          <i data-lucide="user" id="accountIcon"></i>
+          <i class="app-icon fa-solid fa-user" id="accountIcon"></i>
         </button>
         <button class="icon-btn top-search" id="searchButton" title="搜索日程" aria-label="搜索日程">
-          <i data-lucide="search"></i>
+          <i class="app-icon fa-solid fa-magnifying-glass"></i>
         </button>
         <button class="icon-btn" id="assistantButton" title="日程助手" aria-label="打开日程助手">
-          <i data-lucide="sparkles"></i>
+          <i class="assistant-logo" data-lucide="sparkles" aria-hidden="true"></i>
           <span class="service-dot" id="serviceDot" aria-hidden="true"></span>
         </button>
         <button class="icon-btn top-theme" id="themeButton" title="切换明暗主题" aria-label="切换明暗主题">
-          <i data-lucide="moon" id="themeIcon"></i>
+          <i class="app-icon fa-solid fa-moon" id="themeIcon"></i>
         </button>
         <button class="icon-btn" id="settingsButton" title="设置" aria-label="打开设置">
-          <i data-lucide="settings"></i>
+          <i class="app-icon fa-solid fa-gear"></i>
         </button>
         <button class="icon-btn pin-button" id="pinButton" title="置顶窗口" aria-label="置顶窗口" aria-pressed="false">
-          <i data-lucide="pin"></i>
+          <i class="app-icon fa-solid fa-thumbtack"></i>
         </button>
         <button class="icon-btn window-control" id="minimizeButton" title="最小化" aria-label="最小化">
-          <i data-lucide="minus"></i>
+          <i class="app-icon fa-solid fa-minus"></i>
         </button>
         <button class="icon-btn window-control maximize-button" id="maximizeButton" title="最大化" aria-label="最大化">
-          <i data-lucide="square"></i>
+          <i class="app-icon fa-regular fa-square"></i>
         </button>
         <button class="icon-btn window-control close-button" id="closeButton" title="关闭" aria-label="关闭">
-          <i data-lucide="x"></i>
+          <i class="app-icon fa-solid fa-xmark"></i>
         </button>
       </div>
     </header>
@@ -86,10 +87,10 @@
             <strong id="miniCalendarTitle"></strong>
             <div class="mini-calendar-actions">
               <button class="icon-btn small" id="previousMonth" title="上个月" aria-label="上个月">
-                <i data-lucide="chevron-left"></i>
+                <i class="app-icon fa-solid fa-chevron-left"></i>
               </button>
               <button class="icon-btn small" id="nextMonth" title="下个月" aria-label="下个月">
-                <i data-lucide="chevron-right"></i>
+                <i class="app-icon fa-solid fa-chevron-right"></i>
               </button>
             </div>
           </div>
@@ -102,22 +103,22 @@
         <nav class="sidebar-group" aria-label="日程范围">
           <p class="sidebar-label">日程</p>
           <button class="nav-item active" data-nav="today">
-            <i data-lucide="crosshair"></i>
+            <i class="app-icon fa-solid fa-location-crosshairs"></i>
             <span>今天</span>
             <span class="nav-count" id="todayCount">0</span>
           </button>
           <button class="nav-item" data-nav="upcoming">
-            <i data-lucide="calendar-range"></i>
+            <i class="app-icon fa-solid fa-calendar-week"></i>
             <span>未来七天</span>
             <span class="nav-count" id="upcomingCount">0</span>
           </button>
           <button class="nav-item" data-nav="all">
-            <i data-lucide="list-todo"></i>
+            <i class="app-icon fa-solid fa-list-check"></i>
             <span>全部任务</span>
             <span class="nav-count" id="allCount">0</span>
           </button>
           <button class="nav-item" data-nav="trash">
-            <i data-lucide="trash-2"></i>
+            <i class="app-icon fa-solid fa-trash-can"></i>
             <span>回收站</span>
             <span class="nav-count" id="trashCount">0</span>
           </button>
@@ -128,22 +129,22 @@
           <button class="calendar-source active" data-calendar="个人">
             <span class="source-dot personal"></span>
             <span>个人</span>
-            <i data-lucide="check"></i>
+            <i class="app-icon fa-solid fa-check"></i>
           </button>
           <button class="calendar-source active" data-calendar="工作">
             <span class="source-dot work"></span>
             <span>工作</span>
-            <i data-lucide="check"></i>
+            <i class="app-icon fa-solid fa-check"></i>
           </button>
         </section>
 
         <button class="assistant-entry" id="sidebarAssistant">
-          <i data-lucide="sparkles"></i>
+          <i class="assistant-logo" data-lucide="sparkles" aria-hidden="true"></i>
           <span>
             <strong>日程助手</strong>
             <small>批量调整与复杂查询</small>
           </span>
-          <i data-lucide="chevron-right"></i>
+          <i class="app-icon fa-solid fa-chevron-right"></i>
         </button>
       </aside>
 
@@ -157,7 +158,7 @@
           </div>
           <div class="main-header-actions">
             <button class="text-btn return-today-button" id="returnTodayButton" title="回到当前日期" aria-label="返回今天">
-              <i data-lucide="undo-2"></i>
+              <i class="app-icon fa-solid fa-arrow-rotate-left"></i>
               <span id="returnTodayLabel">返回今天</span>
             </button>
             <div class="mobile-view-switch segmented-control" role="tablist" aria-label="日历视图">
@@ -166,7 +167,7 @@
               <button class="segment" data-view="month" role="tab" aria-selected="false">月</button>
             </div>
             <button class="text-btn focus-button" id="focusButton" aria-pressed="false">
-              <i data-lucide="focus"></i>
+              <i class="app-icon fa-solid fa-filter"></i>
               <span>仅看未完成</span>
             </button>
           </div>
@@ -179,8 +180,8 @@
             <span>支持日期、时间、时长、重复与截止日期</span>
           </div>
           <div class="composer-row">
-            <button class="icon-btn" id="composerAssistant" title="交给日程助手" aria-label="交给日程助手">
-              <i data-lucide="sparkles"></i>
+            <button class="icon-btn composer-assistant-toggle" id="composerAssistant" title="使用 AI 助手" aria-label="使用 AI 助手" aria-pressed="false">
+              <i class="assistant-logo" data-lucide="sparkles" aria-hidden="true"></i>
             </button>
             <label class="sr-only" for="quickInput">快速添加日程</label>
             <input
@@ -190,91 +191,99 @@
               autocomplete="off"
               placeholder="例如：明天 9 点项目会议 45 分钟"
             >
-            <button class="composer-submit" id="quickSubmit" title="添加日程" aria-label="添加日程">
-              <i data-lucide="plus"></i>
+            <button class="icon-btn composer-attachment" id="quickAttachment" title="添加文本附件" aria-label="添加文本附件">
+              <i class="app-icon fa-solid fa-paperclip"></i>
+            </button>
+            <button class="composer-submit" id="quickSubmit" title="提交日程指令" aria-label="提交日程指令">
+              <i class="app-icon fa-solid fa-paper-plane" id="quickSubmitIcon"></i>
             </button>
           </div>
         </footer>
       </main>
 
-      <aside class="details-panel">
-        <header class="details-head">
-          <strong>任务详情</strong>
+      <aside class="details-panel" id="contextPanel" aria-label="日程上下文栏">
+        <header class="details-head context-head">
+          <div class="context-tabs" role="tablist" aria-label="上下文工具">
+            <button class="context-tab active" id="detailsContextTab" data-context-panel="details" role="tab" aria-selected="true" aria-controls="detailsContent">
+              <i class="app-icon fa-solid fa-table-columns"></i>
+              <span>任务详情</span>
+            </button>
+            <button class="context-tab" id="assistantContextTab" data-context-panel="assistant" role="tab" aria-selected="false" aria-controls="assistantContext">
+              <i class="assistant-logo" data-lucide="sparkles" aria-hidden="true"></i>
+              <span>日程助手</span>
+            </button>
+          </div>
           <div class="details-actions">
             <button class="icon-btn small" id="duplicateDetail" title="复制任务" aria-label="复制任务">
-              <i data-lucide="copy"></i>
+              <i class="app-icon fa-solid fa-copy"></i>
             </button>
             <button class="icon-btn small danger-hover" id="deleteDetail" title="删除任务" aria-label="删除任务">
-              <i data-lucide="trash-2"></i>
+              <i class="app-icon fa-solid fa-trash-can"></i>
             </button>
           </div>
         </header>
-        <div id="detailsContent"></div>
+        <div class="context-view details-context" id="detailsContent" role="tabpanel" aria-labelledby="detailsContextTab"></div>
+        <section class="context-view assistant-context" id="assistantContext" role="tabpanel" aria-labelledby="assistantContextTab" hidden>
+          <div class="assistant-panel-status">
+            <span class="status-label" id="assistantStatus">检查服务中</span>
+            <span class="assistant-panel-hint">对话不会遮住你的日历</span>
+            <button class="icon-btn small" id="resetAssistant" title="清空对话" aria-label="清空对话">
+              <i class="app-icon fa-solid fa-arrow-rotate-left"></i>
+            </button>
+            <button class="icon-btn small" id="closeAssistantPanel" title="返回任务详情" aria-label="返回任务详情">
+              <i class="app-icon fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div class="assistant-body" id="assistantBody">
+            <div class="assistant-message">
+              复杂查询、批量移动和删除任务可以在这里完成。
+            </div>
+            <div class="assistant-suggestions">
+              <button class="suggestion-button">检查明天有没有时间冲突</button>
+              <button class="suggestion-button">把本周未完成的任务移到周五</button>
+              <button class="suggestion-button">列出所有还没完成的 Deadline</button>
+            </div>
+          </div>
+          <div class="assistant-attachments" id="assistantAttachments" hidden aria-live="polite"></div>
+          <div class="assistant-compose">
+            <label class="sr-only" for="assistantInput">输入复杂日程指令</label>
+            <input id="assistantInput" type="text" autocomplete="off" placeholder="输入复杂日程指令">
+            <button class="icon-btn composer-attachment" id="assistantAttachment" title="添加文本附件" aria-label="添加文本附件">
+              <i class="app-icon fa-solid fa-paperclip"></i>
+            </button>
+            <button class="composer-submit" id="assistantSend" title="发送" aria-label="发送">
+              <i class="app-icon fa-solid fa-paper-plane"></i>
+            </button>
+          </div>
+        </section>
       </aside>
     </div>
   </div>
 
   <div class="popover-menu" id="taskMenu" role="menu" aria-hidden="true">
     <button class="menu-item" data-menu-action="edit" role="menuitem">
-      <i data-lucide="pencil"></i><span>编辑详情</span>
+      <i class="app-icon fa-solid fa-pen"></i><span>编辑详情</span>
     </button>
     <button class="menu-item" data-menu-action="duplicate" role="menuitem">
-      <i data-lucide="copy"></i><span>复制任务</span>
+      <i class="app-icon fa-solid fa-copy"></i><span>复制任务</span>
     </button>
     <div class="menu-divider"></div>
     <button class="menu-item danger" data-menu-action="delete" role="menuitem">
-      <i data-lucide="trash-2"></i><span>删除</span>
+      <i class="app-icon fa-solid fa-trash-can"></i><span>删除</span>
     </button>
   </div>
 
   <div class="overlay" id="searchOverlay" aria-hidden="true">
     <section class="dialog search-dialog" role="dialog" aria-modal="true" aria-label="搜索日程">
       <div class="search-box">
-        <i data-lucide="search"></i>
+        <i class="app-icon fa-solid fa-magnifying-glass"></i>
         <label class="sr-only" for="searchInput">搜索日程</label>
         <input id="searchInput" type="search" autocomplete="off" placeholder="搜索标题、地点或任务类型">
         <button class="icon-btn" data-close-overlay="searchOverlay" title="关闭" aria-label="关闭搜索">
-          <i data-lucide="x"></i>
+          <i class="app-icon fa-solid fa-xmark"></i>
         </button>
       </div>
       <div class="search-results" id="searchResults"></div>
-    </section>
-  </div>
-
-  <div class="overlay" id="assistantOverlay" aria-hidden="true">
-    <section class="dialog assistant-dialog" role="dialog" aria-modal="true" aria-label="日程助手">
-      <header class="dialog-head">
-        <div class="dialog-title">
-          <i data-lucide="sparkles"></i>
-          <span>日程助手</span>
-          <span class="status-label" id="assistantStatus">检查服务中</span>
-        </div>
-        <div class="dialog-actions">
-          <button class="icon-btn small" id="resetAssistant" title="清空对话" aria-label="清空对话">
-            <i data-lucide="rotate-ccw"></i>
-          </button>
-          <button class="icon-btn small" data-close-overlay="assistantOverlay" title="关闭" aria-label="关闭日程助手">
-            <i data-lucide="x"></i>
-          </button>
-        </div>
-      </header>
-      <div class="assistant-body" id="assistantBody">
-        <div class="assistant-message">
-          复杂查询、批量移动和删除任务可以在这里完成。
-        </div>
-        <div class="assistant-suggestions">
-          <button class="suggestion-button">检查明天有没有时间冲突</button>
-          <button class="suggestion-button">把本周未完成的任务移到周五</button>
-          <button class="suggestion-button">列出所有还没完成的 Deadline</button>
-        </div>
-      </div>
-      <div class="assistant-compose">
-        <label class="sr-only" for="assistantInput">输入复杂日程指令</label>
-        <input id="assistantInput" type="text" autocomplete="off" placeholder="输入复杂日程指令">
-        <button class="composer-submit" id="assistantSend" title="发送" aria-label="发送">
-          <i data-lucide="send"></i>
-        </button>
-      </div>
     </section>
   </div>
 
@@ -282,11 +291,11 @@
     <section class="dialog settings-dialog" role="dialog" aria-modal="true" aria-label="设置">
       <header class="dialog-head">
         <div class="dialog-title">
-          <i data-lucide="settings"></i>
+          <i class="app-icon fa-solid fa-gear"></i>
           <span>设置</span>
         </div>
         <button class="icon-btn small" data-close-overlay="settingsOverlay" title="关闭" aria-label="关闭设置">
-          <i data-lucide="x"></i>
+          <i class="app-icon fa-solid fa-xmark"></i>
         </button>
       </header>
       <div class="settings-content">
@@ -321,19 +330,6 @@
           </label>
         </section>
 
-        <section class="settings-section">
-          <h2>AI 服务</h2>
-          <label class="settings-field">
-            <span>提供商</span>
-            <select id="aiProvider">
-              <option value="doubao">豆包</option>
-              <option value="ollama">Ollama</option>
-              <option value="openai">OpenAI / 兼容服务</option>
-            </select>
-          </label>
-          <div id="providerFields"></div>
-        </section>
-
         <section class="settings-section about-section">
           <h2>关于</h2>
           <div class="about-row">
@@ -341,7 +337,7 @@
             <strong id="appVersion">V3.0.5</strong>
           </div>
           <button class="secondary-button" id="openLogsButton">
-            <i data-lucide="folder-open"></i>
+            <i class="app-icon fa-solid fa-folder-open"></i>
             <span>打开日志目录</span>
           </button>
         </section>
@@ -358,7 +354,7 @@
       <header class="details-head">
         <strong>任务详情</strong>
         <button class="icon-btn" id="closeMobileDetail" title="关闭" aria-label="关闭任务详情">
-          <i data-lucide="x"></i>
+          <i class="app-icon fa-solid fa-xmark"></i>
         </button>
       </header>
       <div id="mobileDetailsContent"></div>
@@ -369,11 +365,11 @@
     <section class="dialog account-dialog" role="dialog" aria-modal="true" aria-label="账号与云端同步">
       <header class="dialog-head">
         <div class="dialog-title">
-          <i data-lucide="cloud"></i>
+          <i class="app-icon fa-solid fa-cloud"></i>
           <span>账号与云端同步</span>
         </div>
         <button class="icon-btn small" data-close-overlay="accountOverlay" title="关闭" aria-label="关闭账号设置">
-          <i data-lucide="x"></i>
+          <i class="app-icon fa-solid fa-xmark"></i>
         </button>
       </header>
       <div class="account-content" id="accountContent">
@@ -386,11 +382,11 @@
     <section class="dialog conflict-dialog" role="dialog" aria-modal="true" aria-label="同步冲突">
       <header class="dialog-head">
         <div class="dialog-title">
-          <i data-lucide="alert-triangle"></i>
+          <i class="app-icon fa-solid fa-triangle-exclamation"></i>
           <span>同步冲突</span>
         </div>
         <button class="icon-btn small" data-close-overlay="conflictOverlay" title="关闭" aria-label="关闭冲突处理">
-          <i data-lucide="x"></i>
+          <i class="app-icon fa-solid fa-xmark"></i>
         </button>
       </header>
       <div class="conflict-content" id="conflictContent"></div>
@@ -401,11 +397,11 @@
     <section class="dialog trash-dialog" role="dialog" aria-modal="true" aria-label="回收站">
       <header class="dialog-head">
         <div class="dialog-title">
-          <i data-lucide="trash-2"></i>
+          <i class="app-icon fa-solid fa-trash-can"></i>
           <span>回收站</span>
         </div>
         <button class="icon-btn small" data-close-overlay="trashOverlay" title="关闭" aria-label="关闭回收站">
-          <i data-lucide="x"></i>
+          <i class="app-icon fa-solid fa-xmark"></i>
         </button>
       </header>
       <div class="trash-content" id="trashContent"></div>
@@ -416,11 +412,11 @@
     <section class="dialog migration-dialog" role="dialog" aria-modal="true" aria-label="首次数据迁移摘要">
       <header class="dialog-head">
         <div class="dialog-title">
-          <i data-lucide="arrow-left-right"></i>
+          <i class="app-icon fa-solid fa-right-left"></i>
           <span>首次云端迁移完成</span>
         </div>
         <button class="icon-btn small" data-close-overlay="migrationOverlay" title="关闭" aria-label="关闭迁移摘要">
-          <i data-lucide="x"></i>
+          <i class="app-icon fa-solid fa-xmark"></i>
         </button>
       </header>
       <div class="migration-content" id="migrationContent"></div>
@@ -432,7 +428,7 @@
     <button id="toastUndo">撤销</button>
   </div>
 
-  <script src="node_modules/lucide/dist/umd/lucide.min.js"></script>
+  <script src="node_modules/lucide/dist/umd/lucide.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

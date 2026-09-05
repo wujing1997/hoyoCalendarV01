@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+  <link rel="stylesheet" href="../../node_modules/@fortawesome/fontawesome-free/css/all.min.css">
+  <link rel="stylesheet" href="reminder.css">
+  <title>日程提醒</title>
+</head>
+<body>
+  <button id="card" aria-label="关闭这条日程提醒">
+    <div class="heading"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i><span>日程提醒</span><span id="time"></span></div>
+    <div id="title"></div>
+    <div class="footer"><span id="calendar"></span><span id="remaining"></span></div>
+    <div class="hint" id="hint">单击关闭</div>
+  </button>
+  <script src="reminder.js"></script>
+</body>
+</html>

@@ -111,6 +111,7 @@ class SyncEngine {
     this.heartbeatTimer = null;
     this.syncing = false;
     this.lastPullAt = 0;
+    this.dataRevision = 0;
     this.agentSessionId = typeof this.state.agentSessionId === 'string'
       && this.state.agentSessionId.length > 0
       ? this.state.agentSessionId
@@ -204,6 +205,7 @@ class SyncEngine {
       online: this.isOnline(),
       migrationSummary: this.state.migrationSummary,
       migrationDone: this.state.migrationDone,
+      dataRevision: this.dataRevision,
     };
   }
 
@@ -566,6 +568,7 @@ class SyncEngine {
     for (const remote of events) {
       this.applyCloudEvent(remote);
     }
+    if (events.length > 0) this.dataRevision += 1;
     this.state.lastSyncAt = new Date().toISOString();
     this.persistState();
     return events;

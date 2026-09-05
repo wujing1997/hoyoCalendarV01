@@ -27,6 +27,21 @@ test('× clicks are handled by document-level delegation for every overlay', () 
   );
 });
 
+test('compact overlays and their controls opt out of the Electron drag region', () => {
+  assert.match(
+    stylesSource,
+    /button,\s*input,\s*textarea,\s*select\s*\{[\s\S]*?-webkit-app-region:\s*no-drag;/,
+  );
+  assert.match(stylesSource, /\.overlay\s*\{[\s\S]*?-webkit-app-region:\s*no-drag;/);
+  assert.match(stylesSource, /\.dialog\s*\{[\s\S]*?-webkit-app-region:\s*no-drag;/);
+});
+
+test('closing an overlay moves focus out before applying aria-hidden', () => {
+  assert.match(rendererSource, /const overlayFocusOrigins = new WeakMap\(\);/);
+  assert.match(rendererSource, /if \(overlay\.contains\(document\.activeElement\)\) document\.activeElement\.blur\(\);/);
+  assert.match(rendererSource, /if \(wasOpen && focusOrigin\?\.isConnected\) focusOrigin\.focus\(\{ preventScroll: true \}\);/);
+});
+
 test('Escape key closes the account overlay along with the other overlays', () => {
   const escapeBlock = rendererSource.match(/event\.key === 'Escape'[\s\S]*?closeMobileDetails\(\)/);
   assert.ok(escapeBlock, 'Escape handler should exist');

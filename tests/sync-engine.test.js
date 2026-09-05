@@ -304,9 +304,12 @@ test('pull downloads remote events and tracks the cursor', async () => {
     await engine.pullAll();
     assert.equal(engine.__store.loadEvents().length, 2);
     assert.equal(engine.state.cursor, 2);
+    assert.equal(engine.getSnapshot().dataRevision, 1);
     const stored = engine.__store.findEventByUuid('11111111-1111-4111-8111-111111111111');
     assert.equal(stored._version, 1);
     assert.equal(stored.event, '远端任务');
+    await engine.pullAll();
+    assert.equal(engine.getSnapshot().dataRevision, 1);
   });
 });
 

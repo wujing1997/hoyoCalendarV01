@@ -3,6 +3,7 @@
 const {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   screen,
   shell,
@@ -12,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { LocalConfig } = require('./src/core/local-config');
+const { startReminders } = require('./src/reminder/controller');
 
 const allowMultipleInstances = process.env.HOYO_ALLOW_MULTIPLE_INSTANCES === '1';
 const gotLock = allowMultipleInstances || app.requestSingleInstanceLock();
@@ -57,6 +59,14 @@ process.on('unhandledRejection', (reason) => logError('unhandledRejection', reas
 let mainWindow = null;
 let persistTimer = null;
 let currentMode = 'wide';
+let reminders = null;
+
+function showCalendar() {
+  if (!mainWindow || mainWindow.isDestroyed()) { createWindow(); return; }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
 
 const COMPACT_WIDTH = 430;
 const COMPACT_MIN_WIDTH = 360;
@@ -64,6 +74,15 @@ const WIDE_DEFAULT_WIDTH = 1180;
 const WIDE_DEFAULT_HEIGHT = 760;
 const WIDE_MIN_WIDTH = 720;
 const WIDE_MIN_HEIGHT = 560;
+const ATTACHMENT_MAX_FILES = 5;
+const ATTACHMENT_MAX_BYTES = 512 * 1024;
+const ATTACHMENT_MAX_TOTAL_CHARS = 60000;
+const TEXT_ATTACHMENT_EXTENSIONS = new Set([
+  '.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.jsonl', '.ics', '.log',
+  '.yaml', '.yml', '.xml', '.html', '.htm', '.css', '.js', '.mjs', '.cjs', '.ts',
+  '.tsx', '.jsx', '.py', '.java', '.kt', '.go', '.rs', '.c', '.h', '.cpp', '.hpp',
+  '.sql', '.sh', '.ps1', '.toml', '.ini', '.conf',
+]);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -187,6 +206,7 @@ function createWindow() {
     frame: false,
     transparent: false,
     backgroundColor: '#eef1f5',
+    icon: path.join(__dirname, 'assets', 'app-icon.png'),
     alwaysOnTop: saved.isPinned,
     resizable: true,
     show: false,
@@ -200,7 +220,7 @@ function createWindow() {
   });
 
   mainWindow.setMenu(null);
-  mainWindow.loadFile('index.html');
+  mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     publishWindowState();
@@ -219,6 +239,12 @@ function createWindow() {
   });
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+  mainWindow.on('close', (event) => {
+    if (app.isQuitting || !reminders) return;
+    event.preventDefault();
+    saveWindowStateNow();
+    mainWindow.hide();
   });
   mainWindow.on('unresponsive', () => logError('Renderer became unresponsive'));
 
@@ -253,9 +279,10 @@ app.on('second-instance', () => {
 app.whenReady().then(() => {
   log('HoYoCalendar starting', `version=${app.getVersion()}`, `packaged=${app.isPackaged}`);
   createWindow();
+  reminders = startReminders({ app, getMainWindow: () => mainWindow, showCalendar, onError: (error) => logError('Reminder check failed', error) });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    showCalendar();
   });
 
   screen.on('display-metrics-changed', refitCompactWindow);
@@ -264,11 +291,13 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (!reminders && process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', () => {
   app.isQuitting = true;
+  reminders?.dispose();
+  reminders = null;
   clearTimeout(persistTimer);
   saveWindowStateNow();
 });
@@ -276,6 +305,55 @@ app.on('before-quit', () => {
 ipcMain.handle('get-window-state', () => currentWindowState());
 ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('open-logs-folder', async () => shell.openPath(logDir));
+ipcMain.handle('assistant-pick-attachments', async () => {
+  const selection = await dialog.showOpenDialog(mainWindow, {
+    title: '选择要交给 AI 助手的文本附件',
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      {
+        name: '文本与日历文件',
+        extensions: [...TEXT_ATTACHMENT_EXTENSIONS].map((extension) => extension.slice(1)),
+      },
+    ],
+  });
+  if (selection.canceled) return { ok: true, files: [] };
+  if (selection.filePaths.length > ATTACHMENT_MAX_FILES) {
+    return { ok: false, message: `一次最多选择 ${ATTACHMENT_MAX_FILES} 个附件。` };
+  }
+
+  const files = [];
+  let remainingChars = ATTACHMENT_MAX_TOTAL_CHARS;
+  try {
+    for (const filePath of selection.filePaths) {
+      const extension = path.extname(filePath).toLowerCase();
+      if (!TEXT_ATTACHMENT_EXTENSIONS.has(extension)) {
+        return { ok: false, message: `“${path.basename(filePath)}”不是支持的文本文件。` };
+      }
+      const stats = fs.statSync(filePath);
+      if (!stats.isFile() || stats.size > ATTACHMENT_MAX_BYTES) {
+        return { ok: false, message: `“${path.basename(filePath)}”超过 512 KB，无法添加。` };
+      }
+      const buffer = fs.readFileSync(filePath);
+      if (buffer.includes(0)) {
+        return { ok: false, message: `“${path.basename(filePath)}”看起来是二进制文件，无法读取。` };
+      }
+      const decoded = buffer.toString('utf8').replace(/^\uFEFF/, '');
+      const text = decoded.slice(0, Math.max(0, remainingChars));
+      files.push({
+        id: `${stats.mtimeMs}-${stats.size}-${path.basename(filePath)}`,
+        name: path.basename(filePath),
+        size: stats.size,
+        text,
+        truncated: text.length < decoded.length,
+      });
+      remainingChars -= text.length;
+    }
+    return { ok: true, files };
+  } catch (error) {
+    logError('Failed to read assistant attachments', error);
+    return { ok: false, message: '读取附件失败，请确认文件仍然存在且可访问。' };
+  }
+});
 ipcMain.handle('get-auto-launch', () => app.getLoginItemSettings().openAtLogin);
 ipcMain.handle('set-auto-launch', (_event, enabled) => {
   app.setLoginItemSettings({ openAtLogin: Boolean(enabled), path: process.execPath });

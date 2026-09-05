@@ -133,6 +133,7 @@ async function initCloud() {
 initCloud();
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  setReminderTheme: (theme) => ipcRenderer.send('reminder-theme', theme),
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
   maximizeWindow: () => ipcRenderer.send('window-toggle-maximize'),
   closeWindow: () => ipcRenderer.send('window-close'),
@@ -148,6 +149,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', Boolean(enabled)),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   openLogsFolder: () => ipcRenderer.invoke('open-logs-folder'),
+});
+
+contextBridge.exposeInMainWorld('attachmentAPI', {
+  pickTextFiles: () => ipcRenderer.invoke('assistant-pick-attachments'),
 });
 
 function notifyLocalChange(id, op) {
