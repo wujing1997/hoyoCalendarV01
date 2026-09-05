@@ -24,7 +24,7 @@
   "type": "commonjs",
   "build": {
     "appId": "com.hoyocalendar.app",
-    "productName": "HoYoCalendarV3.0.5",
+    "productName": "HoYoCalendarV3.0.6",
     "directories": {
       "output": "dist"
     },
@@ -63,7 +63,7 @@
       "oneClick": true,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
-      "artifactName": "HoYoCalendarV3.0.5-setup.exe",
+      "artifactName": "HoYoCalendarV3.0.6-setup.exe",
       "shortcutName": "HoYoCalendar"
     }
   },
