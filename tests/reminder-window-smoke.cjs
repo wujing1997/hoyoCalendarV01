@@ -24,12 +24,13 @@ app.whenReady().then(async () => {
     const popup = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('/src/reminder/'));
     assert(main && popup);
     assert(popup.isVisible());
-    assert(!popup.isFocusable());
+    assert(popup.isFocusable(), 'The reminder must accept real mouse clicks');
+    assert(!popup.isFocused(), 'Showing a reminder must not steal keyboard focus');
     const bounds = popup.getBounds();
     const area = screen.getPrimaryDisplay().workArea;
     // Windows rounds physical pixels at fractional display scaling.
-    assert(Math.abs(bounds.x + bounds.width + 8 - area.x - area.width) <= 1);
-    assert(Math.abs(bounds.y - area.y - 8) <= 1);
+    assert(Math.abs(bounds.x + bounds.width + 16 - area.x - area.width) <= 1);
+    assert(Math.abs(bounds.y - area.y - 16) <= 1);
     main.setBounds({ width: 430, height: 740 });
     screen.emit('display-metrics-changed');
     assert.deepEqual(popup.getBounds(), bounds);
@@ -42,6 +43,17 @@ app.whenReady().then(async () => {
     main.close();
     assert(!main.isDestroyed() && !main.isVisible());
     assert(popup.isVisible());
+    if (process.env.HOYO_NATIVE_CLICK_TEST === '1') {
+      console.log('Waiting for two native clicks on the reminder cards:', sandbox);
+      const deadline = Date.now() + 120000;
+      while (popup.isVisible() && Date.now() < deadline) await delay(250);
+      assert(!popup.isVisible(), 'Native clicks must dismiss both reminders');
+      assert(store.loadEvents().every((event) => !event.isCompleted), 'Acknowledgement must not complete tasks');
+      assert.equal(JSON.parse(fs.readFileSync(path.join(sandbox, 'HoyoCalendar/reminder-confirmations.json'), 'utf8')).length, 2);
+      console.log('Native click test passed; tasks remain incomplete');
+      app.quit();
+      return;
+    }
     const click = async (x, y) => {
       popup.webContents.sendInputEvent({ type: 'mouseMove', x, y });
       await delay(50);

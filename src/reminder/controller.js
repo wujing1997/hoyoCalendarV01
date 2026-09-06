@@ -16,17 +16,17 @@ function startReminders({ app, getMainWindow, showCalendar, onError }) {
   ]));
   tray.on('click', showCalendar);
   const window = new BrowserWindow({
-    width: 356, height: 206, frame: false, transparent: true, show: false,
-    resizable: false, movable: false, focusable: false, skipTaskbar: true,
-    alwaysOnTop: true, hasShadow: false,
+    width: 340, height: 190, frame: false, transparent: false, show: false,
+    backgroundColor: '#ffffff', roundedCorners: true,
+    resizable: false, movable: false, focusable: true, skipTaskbar: true,
+    alwaysOnTop: true, hasShadow: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   window.setAlwaysOnTop(true, 'screen-saver');
-  window.setIgnoreMouseEvents(true, { forward: true });
   function position() {
     const area = screen.getPrimaryDisplay().workArea;
-    const width = Math.min(356, area.width - 16);
-    window.setBounds({ x: area.x + area.width - width - 8, y: area.y + 8, width, height: 206 });
+    const width = Math.min(340, area.width - 32);
+    window.setBounds({ x: area.x + area.width - width - 16, y: area.y + 16, width, height: 190 });
   }
   position();
   function publish() {
@@ -35,7 +35,6 @@ function startReminders({ app, getMainWindow, showCalendar, onError }) {
     window.webContents.send('reminder-state', { ...snapshot, theme });
     if (snapshot.reminder) {
       if (!window.isVisible()) {
-        window.setIgnoreMouseEvents(true, { forward: true });
         window.showInactive();
       }
     } else window.hide();
@@ -48,12 +47,10 @@ function startReminders({ app, getMainWindow, showCalendar, onError }) {
       ready = true;
       publish();
     },
-    'reminder-hover': (event, inside) => {
-      if (event.sender === window.webContents) window.setIgnoreMouseEvents(!inside, { forward: true });
-    },
     'reminder-theme': (event, value) => {
       if (event.sender !== getMainWindow()?.webContents) return;
       theme = value === 'dark' ? 'dark' : 'light';
+      window.setBackgroundColor(theme === 'dark' ? '#181b20' : '#ffffff');
       publish();
     },
   };

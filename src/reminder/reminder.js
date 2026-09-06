@@ -29,6 +29,4 @@ card.addEventListener('click', async () => {
   catch (_) { document.querySelector('#hint').textContent = '保存失败，请再次单击'; }
   if (currentKey === key) { closing = false; card.className = ''; }
 });
-card.addEventListener('mouseenter', () => window.reminderAPI.hover(true));
-card.addEventListener('mouseleave', () => window.reminderAPI.hover(false));
 window.reminderAPI.ready();

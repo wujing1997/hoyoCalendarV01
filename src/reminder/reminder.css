@@ -2,7 +2,7 @@
 body[data-theme="dark"] { color-scheme:dark; --surface:#181b20; --text:#eef1f5; --muted:#b4bbc6; --border:#2d323a; --primary:#76a7f5; }
 * { box-sizing:border-box; }
 html,body { margin:0; background:transparent; overflow:hidden; font:13px "Segoe UI", "Microsoft YaHei", sans-serif; }
-body { padding:8px; }
+body { padding:0; }
 #card { width:100%; height:190px; padding:16px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); text-align:left; font:inherit; cursor:pointer; box-shadow:0 3px 8px #1b23301f; -webkit-app-region:no-drag; }
 #card > *, #card i, #card span { pointer-events:none; }
 .heading,.footer { display:flex; align-items:center; gap:8px; }
